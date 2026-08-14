@@ -1,6 +1,6 @@
 ---
 name: video-digest
-description: 视频内容解析与情报追踪。解析 B站视频/讲座录制/本地视频：字幕直取或语音转写、画面核验、结构化总结、归档。触发词：解析这个视频、总结这个视频、总结讲座、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么。
+description: 视频内容解析与笔记。兼容 B站视频与本地视频文件：字幕直取或语音转写、画面核验、结构化总结、笔记归档。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记。
 license: MIT
 metadata:
   version: 0.1.0
@@ -29,8 +29,8 @@ metadata:
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
 | 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner>` | 事实/观点双轨模板 |
-| 批量追踪 | `scripts/digest_weekly.py` | 关注列表增量 → 归档 |
-| 讲座处理 | `scripts/lecture_pipeline.py` | 录制 → 笔记 |
+| 本地视频解析 | `scripts/lecture_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
+| 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档 |
 
 ## 工作流（解析一个视频）
 

@@ -1,6 +1,6 @@
 # video-digest-skill — 视频解析与情报追踪
 
-Claude Code skill：解析 B站视频 / 讲座录制 / 本地视频 — **字幕直取或语音转写 → 画面核验 → 结构化总结 → 归档**。
+Claude Code skill：**兼容 B站视频与本地视频文件** — **字幕直取或语音转写 → 画面核验 → 结构化总结 → 笔记归档**。本地视频（任意来源录制，如讲座/课程/会议）同样支持完整解析与笔记。
 
 > 个人自用工具开源分享。基于 Xiaomi MiMo 多模态模型（ASR + 视觉），多模态模型可配置替换。
 
@@ -12,6 +12,7 @@ Claude Code skill：解析 B站视频 / 讲座录制 / 本地视频 — **字幕
 | 语音转写 | `scripts/mimo_asr.py` | wav/mp3 → 文本（默认 MiMo ASR，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MiMo Vision，可换模型） |
 | 结构化总结 | `scripts/bili_summarize.py` | 事实/观点双轨模板 |
+| 本地视频解析 | `scripts/lecture_pipeline.py` | 本地视频文件 → 转写 → 笔记（任意来源录制） |
 
 ## 安装
 
@@ -26,7 +27,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
 
 ## 使用
 
-自然语言触发：**"解析这个视频 [URL/BV号]" / "总结这个视频" / "总结讲座" / "字幕提取" / "画面核验"**
+自然语言触发：**"解析这个视频 [URL/BV号]" / "解析这个本地视频 [文件路径]" / "总结这个视频" / "做视频笔记" / "字幕提取" / "画面核验"**
 
 ## 配置（凭证隔离 — 重要）
 
