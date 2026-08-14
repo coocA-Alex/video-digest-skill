@@ -1,8 +1,19 @@
-# video-digest-skill — 视频解析与情报追踪
+# video-digest-skill — 视频解析与笔记
 
-Claude Code skill：**兼容 B站视频与本地视频文件** — **字幕直取或语音转写 → 画面核验 → 结构化总结 → 笔记归档**。本地视频（任意来源录制，如讲座/课程/会议）同样支持完整解析与笔记。
+> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
+>
+> **不用重看视频就能记住它。** video-digest 把 B站视频和本地录制转成结构化、可核验的笔记 — 字幕直取或语音转写、视觉模型核验关键画面、严格区分事实与观点。模型自带：默认 MiMo，改一行配置即可换成任意 OpenAI 兼容模型。
 
-> 个人自用工具开源分享。基于 Xiaomi MiMo 多模态模型（ASR + 视觉），多模态模型可配置替换。
+## 亮点
+
+- **双源输入**：B站 AI 字幕（精确到秒）或任意本地视频文件
+- **多模态管道**：语音转写 + 帧级画面核验
+- **事实/观点分离**：结构化总结，让每条论断可独立核验
+- **模型自带**：一行配置切换任意 OpenAI 兼容模型
+- **零凭证入库**：key 只走环境变量
+- **多 agent 兼容**：Claude Code / Codex / Cursor / OpenClaw 通用
+
+> 个人自用工具开源分享。基于 Xiaomi MiMo 多模态模型（ASR + 视觉）与 DeepSeek 总结模型，均可配置替换。
 
 ## 能力
 
@@ -68,5 +79,11 @@ video-digest-skill/
 
 ## 鸣谢
 
-- [Xiaomi MiMo](https://github.com/XiaomiMiMo) — MiMo 多模态模型与开放平台
+- [Xiaomi MiMo](https://github.com/XiaomiMiMo) — MiMo 多模态模型（ASR + 视觉）与开放平台
+- [DeepSeek](https://www.deepseek.com/) — 总结模型 API
 - 借鉴 [bilibili-video-summary](https://github.com/bfftp0502/bilibili-video-summary) 的合规与开源文档结构
+
+## Contributors
+
+- [GUGE](https://github.com/coocA-Alex) — 项目作者
+- [DeepSeek](https://www.deepseek.com/) — AI 辅助开发（模型驱动开发）
