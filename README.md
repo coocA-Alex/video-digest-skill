@@ -85,5 +85,5 @@ video-digest-skill/
 
 ## Contributors
 
-- [GUGE](https://github.com/coocA-Alex) — 项目作者
+- [coocA-Alex](https://github.com/coocA-Alex) — 项目作者
 - [DeepSeek](https://www.deepseek.com/) — AI 辅助开发（模型驱动开发）
