@@ -41,12 +41,13 @@ metadata:
 
 ## 配置（凭证隔离 — 重要）
 
-- **所有 API key 只存在于项目根 `.env`**（gitignored，绝不提交）：
-  - `MIMO_API_KEY`（默认多模态）、`SESSDATA`（B站）、DS key
+- **API key 一律从环境变量读取**（agent 无关，Claude Code / Codex / 其他 agent 均可）：
+  - `MIMO_API_KEY`（多模态）、`DEEPSEEK_API_KEY`（总结，兼容 `ANTHROPIC_AUTH_TOKEN`）、B站 SESSDATA（存 `~/.bili_sessdata`，仓库外）
 - **本 skill 及 scripts 中不包含任何真实 key/凭证**
-- **换多模态模型**：编辑 `config/multimodal.json`（asr/vision 段的 provider/model/base_url/api_key_env），
-  例如换 OpenAI 兼容模型 = 改 base_url + model + api_key_env；协议不同的模型需新增适配器脚本
+- **换模型**：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），
+  例如总结换 OpenAI 兼容模型 = 改 base_url + model + api_key_env；协议不同的模型需新增适配器脚本
 - 示例配置见 `config/multimodal.json`（不含 key）
+- **Agent 兼容**：SKILL.md 为标准格式（Claude Code / Codex / Cursor / OpenClaw 通用）；scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（向后兼容）
 
 ## 合规
 

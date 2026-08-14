@@ -13,14 +13,33 @@ from pathlib import Path
 
 import requests
 
-API_URL = "https://api.deepseek.com/chat/completions"
-MODEL = "deepseek-v4-flash"
-FALLBACK_MODEL = "deepseek-v4-flash"
-SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
+def _load_summarize_config() -> dict:
+    """Read LLM provider config from config/multimodal.json (summarize section).
+
+    Model/URL/key-env-var are swappable per config; the key itself only ever
+    comes from the environment or user-level files, never from the json.
+    """
+    cfg_path = Path(__file__).resolve().parent.parent / "config" / "multimodal.json"
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8")).get("summarize", {})
+    except Exception:
+        cfg = {}
+    return {
+        "model": cfg.get("model", "deepseek-v4-flash"),
+        "base_url": cfg.get("base_url", "https://api.deepseek.com/chat/completions"),
+        "api_key_env": cfg.get("api_key_env", "DEEPSEEK_API_KEY"),
+    }
+
+
+_SUMMARIZE_CFG = _load_summarize_config()
+API_URL = _SUMMARIZE_CFG["base_url"]
+MODEL = _SUMMARIZE_CFG["model"]
+FALLBACK_MODEL = _SUMMARIZE_CFG["model"]
+SETTINGS_PATH = Path.home() / ".claude" / "settings.json"  # Claude Code fallback (optional)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_KEY_PATH = PROJECT_ROOT / "config" / "ds_key.local.json"
 REQUEST_TIMEOUT_SECONDS = 120
-# v4-flash 是思考型模型: 长提示会先消耗 ~4k token 推理, 输出额度需要留足
+# 思考型模型长提示先消耗推理 token, 输出额度需留足
 MAX_OUTPUT_TOKENS = 8192
 
 TEMPLATES = {
@@ -229,19 +248,33 @@ class SummaryEmptyError(Exception):
 
 
 def load_api_key() -> str:
-    """Load the DeepSeek key: project-local file first, then global settings."""
+    """Load the LLM key — agent-agnostic resolution order:
+
+    1. environment (api_key_env from config, e.g. DEEPSEEK_API_KEY, or
+       ANTHROPIC_AUTH_TOKEN) — works in any agent (Claude Code/Codex/etc.)
+    2. project-local config/ds_key.local.json (gitignored)
+    3. ~/.claude/settings.json (Claude Code legacy fallback)
+    """
+    import os
+
+    for env_name in (_SUMMARIZE_CFG["api_key_env"], "ANTHROPIC_AUTH_TOKEN"):
+        key = os.getenv(env_name)
+        if key:
+            return key
     if LOCAL_KEY_PATH.exists():
         with open(LOCAL_KEY_PATH, encoding="utf-8") as f:
             api_key = json.load(f).get("api_key", "")
         if api_key:
             return api_key
-    if not SETTINGS_PATH.exists():
-        raise ApiKeyError(f"no key file found: {LOCAL_KEY_PATH} or {SETTINGS_PATH}")
-    with open(SETTINGS_PATH, encoding="utf-8") as f:
-        api_key = json.load(f).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-    if not api_key:
-        raise ApiKeyError("no usable API key found in local or global config")
-    return api_key
+    if SETTINGS_PATH.exists():
+        with open(SETTINGS_PATH, encoding="utf-8") as f:
+            api_key = json.load(f).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
+        if api_key:
+            return api_key
+    raise ApiKeyError(
+        f"no API key found: set {_SUMMARIZE_CFG['api_key_env']} or "
+        f"ANTHROPIC_AUTH_TOKEN env var, or use {LOCAL_KEY_PATH}"
+    )
 
 
 def build_prompt(

@@ -12,3 +12,6 @@ creators.json
 __pycache__/
 *.pyc
 .venv/
+
+# Editor caches
+.vs/
