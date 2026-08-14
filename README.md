@@ -1,89 +1,89 @@
-# video-digest-skill — 视频解析与笔记
+# video-digest-skill — Video Parsing & Notes
 
 > **Stop re-watching videos to remember them.** video-digest turns Bilibili videos and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
->
-> **不用重看视频就能记住它。** video-digest 把 B站视频和本地录制转成结构化、可核验的笔记 — 字幕直取或语音转写、视觉模型核验关键画面、严格区分事实与观点。模型自带：默认 MiMo，改一行配置即可换成任意 OpenAI 兼容模型。
 
-## 亮点
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-- **双源输入**：B站 AI 字幕（精确到秒）或任意本地视频文件
-- **多模态管道**：语音转写 + 帧级画面核验
-- **事实/观点分离**：结构化总结，让每条论断可独立核验
-- **模型自带**：一行配置切换任意 OpenAI 兼容模型
-- **零凭证入库**：key 只走环境变量
-- **多 agent 兼容**：Claude Code / Codex / Cursor / OpenClaw 通用
+## Highlights
 
-> 个人自用工具开源分享。基于 Xiaomi MiMo 多模态模型（ASR + 视觉）与 DeepSeek 总结模型，均可配置替换。
+- **Dual input**: Bilibili AI subtitles (second-precision) or any local video file
+- **Multimodal pipeline**: speech transcription + frame-level vision verification
+- **Fact/opinion split**: structured summaries that keep claims verifiable
+- **Bring your own model**: one config line swaps in any OpenAI-compatible provider
+- **Zero credentials in repo**: keys live in environment variables only
+- **Agent-agnostic**: works with Claude Code, Codex, Cursor, OpenClaw
 
-## 能力
+> Personal-use tool, open-sourced. Built on Xiaomi MiMo multimodal models (ASR + vision) and DeepSeek for summarization — all swappable via config.
 
-| 能力 | 脚本 | 说明 |
-|------|------|------|
-| B站字幕直取 | `scripts/bili_subtitle.py` | AI 字幕，精确到秒（需登录态） |
-| 语音转写 | `scripts/mimo_asr.py` | wav/mp3 → 文本（默认 MiMo ASR，可换模型） |
-| 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MiMo Vision，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py` | 事实/观点双轨模板 |
-| 本地视频解析 | `scripts/lecture_pipeline.py` | 本地视频文件 → 转写 → 笔记（任意来源录制） |
+## Capabilities
 
-## 安装
+| Capability | Script | Notes |
+|------------|--------|-------|
+| Bilibili subtitle fetch | `scripts/bili_subtitle.py` | AI subtitles, second-precision (requires login) |
+| Speech transcription | `scripts/mimo_asr.py` | wav/mp3 → text (MiMo ASR by default, swappable) |
+| Vision verification | `scripts/mimo_vision.py` | image/frame → visual understanding (MiMo Vision by default, swappable) |
+| Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template |
+| Local video parsing | `scripts/lecture_pipeline.py` | local video file → transcript → notes (any recorded source) |
+
+## Install
 
 ```bash
-# 拷贝 skill 目录到你的 skills 目录
 git clone https://github.com/coocA-Alex/video-digest-skill.git
-# 方式一: 项目级
+# Option 1: user-level
 cp -r video-digest-skill ~/.claude/skills/video-digest
-# 方式二: 项目级
+# Option 2: project-level
 cp -r video-digest-skill <your-project>/.claude/skills/video-digest
 ```
 
-## 使用
+## Usage
 
-自然语言触发：**"解析这个视频 [URL/BV号]" / "解析这个本地视频 [文件路径]" / "总结这个视频" / "做视频笔记" / "字幕提取" / "画面核验"**
+Natural-language triggers: **"parse this video [URL/BV]" / "parse this local video [path]" / "summarize this video" / "make video notes" / "extract subtitles" / "verify frames"**
 
-## 配置（凭证隔离 — 重要）
+## Configuration (credential isolation — important)
 
-1. 项目根创建 `.env`（已 gitignore，**绝不提交**）：
+1. Create `.env` in the project root (gitignored, **never commit**):
    ```
-   MIMO_API_KEY=你的MiMo开放平台key
-   SESSDATA=你的B站登录cookie（可选，部分视频字幕需要）
+   MIMO_API_KEY=your_mimo_platform_key
+   DEEPSEEK_API_KEY=your_deepseek_key
+   SESSDATA=your_bilibili_cookie  # optional, some videos need it
    ```
-2. 多模态模型可替换：编辑 `config/multimodal.json`（asr/vision 的 provider/model/base_url/api_key_env），
-   换 OpenAI 兼容模型 = 改配置；协议不同的模型需新增适配器脚本。
+2. Swappable models: edit `config/multimodal.json` (asr/vision/summarize sections: provider/model/base_url/api_key_env). OpenAI-compatible swap = config change; different protocols need a new adapter script.
+3. **Agent compatibility**: SKILL.md is standard format (Claude Code / Codex / Cursor / OpenClaw); scripts are plain Python CLI with no agent dependency; key resolution order = environment → project-local config → Claude Code global config (legacy fallback).
 
-## 开源说明
+## Open-source notice
 
-- **MIT 许可证**（见 LICENSE）：可自由使用、复制、修改、分发（含商用），需保留版权声明
-- 软件按"原样"提供，无担保，使用后果自负
-- **隐私**：仓库不含任何真实凭据（`.env`/cookies 已 gitignore）；请勿提交个人 key
-- **维护预期**：个人自用工具，佛系维护，不保证及时修复；欢迎修复 PR，复杂功能建议 fork
+- **MIT license** (see LICENSE): free to use, copy, modify, distribute (incl. commercial), with attribution retained
+- Provided "as is", no warranty, use at your own risk
+- **Privacy**: no real credentials in this repo (`.env` gitignored); never commit personal keys
+- **Maintenance**: personal-use tool, best-effort maintenance; PRs for fixes welcome, complex features → fork
 
-## 免责声明
+## Disclaimer
 
-- 仅供**个人学习与研究**使用：遵守 B站《用户协议》与相关法规，勿商用、勿批量抓取
-- 字幕/画面内容版权归原作者与平台；总结输出仅供个人参考
-- cookies 高频访问可能触发账号风控，风险自负
-- 平台接口可能变更导致功能失效，属正常现象
+- For **personal learning/research only**: follow Bilibili ToS, no commercial/bulk scraping
+- Subtitle/frame content belongs to original creators and platforms; summaries for personal reference only
+- Cookie-heavy access may trigger account risk control — use at your own risk
+- Platform APIs may change and break — normal for this kind of tool
 
-## 目录结构
+## Directory
 
 ```
 video-digest-skill/
-├── SKILL.md              ← skill 说明书（frontmatter + 工作流）
-├── scripts/              ← 通用 Python CLI（不依赖 agent，可独立调用）
+├── SKILL.md              ← skill definition (frontmatter + workflow)
+├── scripts/              ← plain Python CLI (agent-independent)
 ├── config/
-│   ├── multimodal.json   ← 多模态模型配置（不含 key）
+│   ├── multimodal.json   ← model config (no keys)
 │   └── creators.example.json
 ├── requirements.txt
 └── LICENSE
 ```
 
-## 鸣谢
+## Acknowledgements
 
-- [Xiaomi MiMo](https://github.com/XiaomiMiMo) — MiMo 多模态模型（ASR + 视觉）与开放平台
-- [DeepSeek](https://www.deepseek.com/) — 总结模型 API
-- 借鉴 [bilibili-video-summary](https://github.com/bfftp0502/bilibili-video-summary) 的合规与开源文档结构
+- [Xiaomi MiMo](https://github.com/XiaomiMiMo) — MiMo multimodal models (ASR + vision) and platform
+- [DeepSeek](https://www.deepseek.com/) — summarization model API
+- Compliance/open-source doc structure inspired by [bilibili-video-summary](https://github.com/bfftp0502/bilibili-video-summary)
 
 ## Contributors
 
-- [coocA-Alex](https://github.com/coocA-Alex) — 项目作者
-- [DeepSeek](https://www.deepseek.com/) — AI 辅助开发（模型驱动开发）
+- [coocA-Alex](https://github.com/coocA-Alex) — author
+- [DeepSeek](https://www.deepseek.com/) — AI-assisted development (model-driven)
