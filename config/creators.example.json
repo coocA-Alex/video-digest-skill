@@ -1,0 +1,18 @@
+{
+  "creators": [
+    {
+      "name": "示例博主A",
+      "mid": 123456789,
+      "note": "示例: 财经/收评类, 每日更新",
+      "template": "stock",
+      "vision": true
+    },
+    {
+      "name": "示例博主B",
+      "mid": 987654321,
+      "note": "template: stock|finance|tech; vision: true/false; backfill: false=新闻类只跟最新不回溯 (默认 true)",
+      "template": "tech",
+      "vision": false
+    }
+  ]
+}

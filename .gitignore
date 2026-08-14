@@ -1,0 +1,14 @@
+# 凭证 — 严禁提交
+.env
+*.local.json
+
+# 个人数据
+data/
+notes/
+tmp/
+creators.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
