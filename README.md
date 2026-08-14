@@ -87,3 +87,5 @@ video-digest-skill/
 
 - [coocA-Alex](https://github.com/coocA-Alex) — author
 - [DeepSeek](https://www.deepseek.com/) — AI-assisted development (model-driven)
+
+> Development stack: Claude Code as the coding-agent client, DeepSeek models as the LLM backend.

@@ -87,3 +87,5 @@ video-digest-skill/
 
 - [coocA-Alex](https://github.com/coocA-Alex) — 项目作者
 - [DeepSeek](https://www.deepseek.com/) — AI 辅助开发（模型驱动开发）
+
+> 开发工具链：Claude Code 作为编码 agent 客户端，DeepSeek 模型作为 LLM 后端。
