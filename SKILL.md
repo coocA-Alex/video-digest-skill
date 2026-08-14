@@ -28,7 +28,7 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner>` | 事实/观点双轨模板 |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style]` | 5 领域模板（stock/finance/tech/general/lecture）+ 4 风格（keypoints/timeline/notes/opinions） |
 | 本地视频解析 | `scripts/lecture_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档 |
 

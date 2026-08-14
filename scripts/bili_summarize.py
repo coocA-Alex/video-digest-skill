@@ -210,6 +210,96 @@ UP主提到的风险点。
 字幕全文：
 {subtitle}
 {vision_section}""",
+    "keypoints": """你是一名视频内容分析助手。请将以下视频字幕提炼为**要点式摘要**：
+
+## 核心要点
+- 每条独立要点（5-10 条），按重要程度排序，每条约 1-2 句
+
+## 关键数据/引用
+字幕中的具体数字、名称、原话引用，原文保留（无则写"无"）
+
+## 存疑内容
+听错可能/需要人工核验的内容（无则写"无"）
+
+规则：
+1. 只基于字幕文本（及画面提取摘要，若提供），绝不补充输入外的事实或知识
+2. 事实与观点分离：要点区分"事实陈述"与"讲述者观点"
+3. 数字必须原文保留，不得改写
+4. 输出纯 markdown，不要额外解释
+
+字幕全文：
+{subtitle}
+{vision_section}""",
+    "timeline": """你是一名视频内容分析助手。请将以下视频字幕整理为**时间线式摘要**：
+
+## 内容时间线
+- 按内容先后分段：每段标注时间点（字幕带时间戳则用，否则用顺序编号），后跟一段话概括该段内容
+- 保持讲述节奏（如"开场引入 → 展开论述 → 案例 → 结论"）
+
+## 核心信息
+全片最核心的 3-5 条信息，每条一句话
+
+## 存疑内容
+听错可能/需要人工核验的内容（无则写"无"）
+
+规则：
+1. 只基于字幕文本（及画面提取摘要，若提供），绝不补充输入外的事实或知识
+2. 数字必须原文保留，不得改写
+3. 输出纯 markdown，不要额外解释
+
+字幕全文：
+{subtitle}
+{vision_section}""",
+    "notes": """你是一名视频内容分析助手。请将以下视频字幕整理为**详细学习笔记**（保留细节，不压缩）：
+
+## 概述
+3-5 句话概括全片主题与主线
+
+## 章节笔记
+### <按内容自然分段命名章节>
+- 要点条目，保留细节、例子、数据（每段 3-8 条）
+
+## 术语与概念
+字幕中出现的专有名词/概念及其上下文摘录（无则写"无"）
+
+## 启发与行动项
+字幕中值得记录的启发、可执行建议（无则写"无"）
+
+## 存疑内容
+听错可能/需要人工核验的内容（无则写"无"）
+
+规则：
+1. 只基于字幕文本（及画面提取摘要，若提供），绝不补充输入外的事实或知识
+2. 事实与观点分离
+3. 数字必须原文保留，不得改写
+4. 输出纯 markdown，不要额外解释
+
+字幕全文：
+{subtitle}
+{vision_section}""",
+    "opinions": """你是一名视频内容分析助手。请从以下视频字幕中**提取全部观点、判断与预测**：
+
+## 观点清单
+### 观点 1：<一句话概括>
+- 详细内容（讲述者的完整表述）
+- 依据（讲述者给出的理由、数据、案例）
+（逐条列出，直到提取完所有观点）
+
+## 观点演进与矛盾
+讲述者前后观点变化或矛盾（无则写"无"）
+
+## 事实边界备注
+区分哪些是事实陈述、哪些是观点（列出关键几处）
+
+规则：
+1. 只基于字幕文本（及画面提取摘要，若提供），绝不补充输入外的事实或知识
+2. 只提取字幕中明确表达的观点，不推断不补充
+3. 数字必须原文保留，不得改写
+4. 输出纯 markdown，不要额外解释
+
+字幕全文：
+{subtitle}
+{vision_section}""",
 }
 
 VISION_SECTION = """
@@ -345,9 +435,10 @@ def summarize_subtitle(
 
 
 def main() -> None:
-    """Summarize one subtitle file; argv: <subtitle.txt> <owner> [out.md]."""
+    """Summarize one subtitle file; argv: <subtitle.txt> <owner> [out.md] [style]."""
     if len(sys.argv) < 3:
-        print("usage: python bili_summarize.py <subtitle.txt> <owner> [out.md]")
+        print("usage: python bili_summarize.py <subtitle.txt> <owner> [out.md] [style]")
+        print(f"styles: {', '.join(TEMPLATES)}")
         sys.exit(1)
     sub_path = Path(sys.argv[1])
     if not sub_path.exists():
@@ -355,11 +446,15 @@ def main() -> None:
         sys.exit(1)
     owner = sys.argv[2]
     out_path = Path(sys.argv[3]) if len(sys.argv) > 3 else sub_path.with_suffix(".md")
+    style = sys.argv[4] if len(sys.argv) > 4 else "stock"
+    if style not in TEMPLATES:
+        print(f"unknown style '{style}', available: {', '.join(TEMPLATES)}")
+        sys.exit(1)
     subtitle_text = sub_path.read_text(encoding="utf-8")
-    summary = summarize_subtitle(load_api_key(), owner, sub_path.stem, subtitle_text)
+    summary = summarize_subtitle(load_api_key(), owner, sub_path.stem, subtitle_text, template=style)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(summary, encoding="utf-8")
-    print(f"summary -> {out_path} ({len(summary)} chars)")
+    print(f"summary ({style}) -> {out_path} ({len(summary)} chars)")
 
 
 if __name__ == "__main__":
