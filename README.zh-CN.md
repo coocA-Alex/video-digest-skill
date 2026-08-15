@@ -23,7 +23,10 @@
 | 语音转写 | `scripts/mimo_asr.py` | wav/mp3 → 文本（默认 MiMo ASR，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MiMo Vision，可换模型） |
 | 结构化总结 | `scripts/bili_summarize.py` | 事实/观点双轨模板 |
-| 本地视频解析 | `scripts/lecture_pipeline.py` | 本地视频文件 → 转写 → 笔记（任意来源录制） |
+| 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（任意来源录制） |
+| 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
+| 视频抽帧 | `scripts/video_frames.py` | 流式抽帧 → 时间戳 manifest（ffmpeg） |
+| 帧画面核验管道 | `scripts/video_vision.py` | 帧批量 → MiMo 读帧 → 时间戳视觉摘要（并发 4 workers） |
 
 ## 安装
 

@@ -23,7 +23,10 @@
 | Speech transcription | `scripts/mimo_asr.py` | wav/mp3 → text (MiMo ASR by default, swappable) |
 | Vision verification | `scripts/mimo_vision.py` | image/frame → visual understanding (MiMo Vision by default, swappable) |
 | Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template |
-| Local video parsing | `scripts/lecture_pipeline.py` | local video file → transcript → notes (any recorded source) |
+| Local video parsing | `scripts/local_video_pipeline.py` | local video file → transcript → notes (any recorded source) |
+| Batch tracking | `scripts/digest_weekly.py` | Bilibili followed-creator incremental archive (creators via `config/creators.example.json`) |
+| Frame extraction | `scripts/video_frames.py` | streaming frame extraction with timestamp manifest (ffmpeg) |
+| Frame vision pipeline | `scripts/video_vision.py` | batch frames → MiMo vision → timestamped visual summary (4 concurrent workers) |
 
 ## Install
 
