@@ -39,8 +39,8 @@ SETTINGS_PATH = Path.home() / ".claude" / "settings.json"  # Claude Code fallbac
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_KEY_PATH = PROJECT_ROOT / "config" / "ds_key.local.json"
 REQUEST_TIMEOUT_SECONDS = 120
-# 思考型模型长提示先消耗推理 token, 输出额度需留足
-MAX_OUTPUT_TOKENS = 8192
+# 思考型模型长提示先消耗推理 token, 输出额度需留足 (2026-08-13 实测: 8192 对长输入会空输出/截断, 50000 完整)
+MAX_OUTPUT_TOKENS = 50000
 
 TEMPLATES = {
     "stock": """你是一名股票市场视频内容分析助手。你的任务是严格区分"事实数据"与"UP主观点"。
@@ -132,28 +132,34 @@ UP主提到的风险点。
 字幕全文：
 {subtitle}
 {vision_section}""",
-    "general": """你是一名视频内容分析助手。你的任务是严格区分"事实信息"与"讲述者观点"，适用于无特定领域的通用内容（讲座、分享、访谈等）。
+    "general": """你是一名视频内容分析助手。适用于无特定领域的通用内容（讲座、分享、访谈、教程等）。
+核心要求：笔记不是流水账——必须提炼重点、呈现逻辑、并给出加工后的思考，而不是均匀罗列所有内容。
 
 以下是 {owner} 的视频《{title}》字幕全文。请按以下结构输出 markdown 总结:
+{desc_section}
+## 一句话主旨
+一句话概括：这个视频在讲什么、解决什么问题、给谁看。
 
-## 内容概要
-3-5 句话概括视频核心内容（讲什么、给谁听、解决什么问题）。
+## 核心内容与逻辑链
+按逻辑顺序呈现主要内容：主线是什么、分哪几个部分、各部分论点/证据/发现如何推进。
+不要平铺罗列所有细节——只保留支撑主线的关键内容。
 
-## 事实信息
-精确引用字幕中的具体信息（数字、时间、人物、事件、数据、定义）。字幕未提到的写"未提及"。不得补充字幕外的信息。
+## 关键事实与数字
+只列出有信息量的硬信息（精确数字、定义、人物、时间、可验证的事实）。琐碎提及不列。字幕未提到的写"未提及"。
 
-## 讲述者观点
-逐条列出，每条用"讲述者观点："开头，并附一句原话引用（不超过30字）。
-观点必须区分：对现状的判断 vs 对未来的预判。
+## 值得记住的观点与金句
+精选 3-6 条最有洞察力/最有启发性的观点或原话（附简短引用，不超过30字）。不要全部罗列，只选真正值得记住的。
 
-## 关键结论
-视频最核心的 2-3 个要点。
+## 思考与行动
+1. 关联：这个内容与哪些已有知识/场景相关
+2. 反思：哪些地方值得认同、哪些存疑
+3. 行动：每条核心启示接一句"所以我要____"（可落地的一句话）
 
 ## 数据可信度备注
-字幕中存疑、可能听错、或需人工核对的点。
+字幕中存疑、可能听错、或需人工核对的点（可结合视频简介/标题校正）。
 
 规则：
-1. 只基于字幕文本（及画面提取摘要，若提供），绝不补充输入外的事实或知识
+1. 只基于字幕文本（及画面提取摘要、视频简介，若提供），绝不补充输入外的事实或知识
 2. 数字必须原文保留，不得四舍五入改写
 3. 输出纯 markdown，不要额外解释
 
@@ -373,12 +379,15 @@ def build_prompt(
     subtitle_text: str,
     vision_summary: str | None = None,
     template: str = "stock",
+    desc: str | None = None,
 ) -> list[dict[str, str]]:
     """Build the chat messages for the summarization request."""
     tpl = TEMPLATES.get(template, TEMPLATES["stock"])
     vision_section = VISION_SECTION.format(vision_summary=vision_summary) if vision_summary else ""
+    desc_section = f"\n\n视频简介（参考，用于校正字幕音译模糊处）：\n{desc}" if desc else ""
     user_content = tpl.format(
-        owner=owner, title=title, subtitle=subtitle_text, vision_section=vision_section
+        owner=owner, title=title, subtitle=subtitle_text, vision_section=vision_section,
+        desc_section=desc_section,
     )
     return [
         {"role": "system", "content": "输出使用简体中文，markdown 格式。"},
@@ -407,6 +416,7 @@ def summarize_subtitle(
     subtitle_text: str,
     vision_summary: str | None = None,
     template: str = "stock",
+    desc: str | None = None,
 ) -> str:
     """Summarize subtitle text with model fallback on API error.
 
@@ -415,7 +425,7 @@ def summarize_subtitle(
     """
     if not subtitle_text.strip():
         raise ValueError("subtitle text is empty")
-    messages = build_prompt(owner, title, subtitle_text, vision_summary, template)
+    messages = build_prompt(owner, title, subtitle_text, vision_summary, template, desc)
     for attempt in range(2):
         try:
             content = _post_completions(api_key, MODEL, messages)
@@ -435,9 +445,9 @@ def summarize_subtitle(
 
 
 def main() -> None:
-    """Summarize one subtitle file; argv: <subtitle.txt> <owner> [out.md] [style]."""
+    """Summarize one subtitle file; argv: <subtitle.txt> <owner> [out.md] [style] [desc]."""
     if len(sys.argv) < 3:
-        print("usage: python bili_summarize.py <subtitle.txt> <owner> [out.md] [style]")
+        print("usage: python bili_summarize.py <subtitle.txt> <owner> [out.md] [style] [desc]")
         print(f"styles: {', '.join(TEMPLATES)}")
         sys.exit(1)
     sub_path = Path(sys.argv[1])
@@ -447,11 +457,12 @@ def main() -> None:
     owner = sys.argv[2]
     out_path = Path(sys.argv[3]) if len(sys.argv) > 3 else sub_path.with_suffix(".md")
     style = sys.argv[4] if len(sys.argv) > 4 else "stock"
+    desc = sys.argv[5] if len(sys.argv) > 5 else None
     if style not in TEMPLATES:
         print(f"unknown style '{style}', available: {', '.join(TEMPLATES)}")
         sys.exit(1)
     subtitle_text = sub_path.read_text(encoding="utf-8")
-    summary = summarize_subtitle(load_api_key(), owner, sub_path.stem, subtitle_text, template=style)
+    summary = summarize_subtitle(load_api_key(), owner, sub_path.stem, subtitle_text, template=style, desc=desc)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(summary, encoding="utf-8")
     print(f"summary ({style}) -> {out_path} ({len(summary)} chars)")

@@ -43,7 +43,7 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style]` | 5 领域模板（stock/finance/tech/general/lecture）+ 4 风格（keypoints/timeline/notes/opinions） |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | 5 领域模板（stock/finance/tech/general/lecture）; general 模板 = 逻辑链+精选事实/观点+思考与行动层; 可选传视频简介校正字幕音译 |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg） |
@@ -55,8 +55,9 @@ metadata:
 1. **字幕**：优先 B站 AI 字幕直取；无字幕/非 B站 → 音频转写（MIMO ASR 或配置的其他模型）
 2. **画面核验（可选）**：需要看图表/PPT/实验画面时，抽帧 → 视觉模型理解
 3. **小红书推文（可选）**：`scripts/xhs_note.py <url> --extract` — 自动判断视频/图文；视频走 ASR+帧，图文走图片文字提取（正文常在图片里）
-4. **总结**：LLM 结构化总结（事实/观点双轨，可衔接预测提取）
-5. **归档**：输出 markdown 到 data/ 或指定位置
+4. **总结**：LLM 结构化总结（可传视频简介 desc 校正字幕音译；general 模板 = 逻辑链+精选+思考与行动层）
+5. **存疑点主动画面核验**：总结后若"数据可信度备注"有可被画面解决的存疑点（专有名词/工具名/表格数字）→ 按时间戳抽帧核验，回填笔记
+6. **归档**：输出 markdown 到 data/ 或指定位置
 
 ## 配置（凭证隔离 — 重要）
 
@@ -85,7 +86,7 @@ metadata:
 ## Troubleshooting
 
 - **总结输出为空/过短**：思考型模型（deepseek-v4-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块
-- **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他
+- **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他。**风控期间备选**：从视频页面 HTML（`curl --compressed`）提取 cid + 标题/简介，字幕走 player API（通常未风控），视频流走 playurl API（fnval=4048 取 dash）
 - **小红书无 __INITIAL_STATE__**：登录态失效或链接过期 → 重新提供 web_session / 链接
 - **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
 

@@ -44,7 +44,7 @@ from bili_subtitle import (  # noqa: E402
     mixin_key,
     signed_params,
 )
-from bili_summarize import detect_suspicious, load_api_key, summarize_subtitle  # noqa: E402
+from bili_summarize import SummaryEmptyError, detect_suspicious, load_api_key, summarize_subtitle  # noqa: E402
 from video_frames import FrameExtractError, extract_frames, get_stream_info  # noqa: E402
 from video_vision import TECH_PROMPT, VISION_PROMPT, VisionError, summarize_frames  # noqa: E402
 
@@ -241,6 +241,7 @@ def fetch_video_detail(bvid: str) -> dict[str, object]:
         "pubdate": int(info["pubdate"]),
         "duration": int(info["duration"]),
         "owner": info["owner"]["name"],
+        "desc": info.get("desc", ""),
     }
 
 
@@ -320,6 +321,7 @@ def process_video(
         subtitle_text,
         vision_summary,
         template,
+        str(detail.get("desc") or ""),
     )
     # 纯字幕总结若标记多处疑似听错 (音译/疑为), 自动开画面核验重总结, 不硬猜
     if not use_vision and detect_suspicious(summary):
@@ -333,6 +335,7 @@ def process_video(
                 subtitle_text,
                 vision_summary,
                 template,
+                str(detail.get("desc") or ""),
             )
     out_path = archive_note(str(detail["owner"]), bvid, detail, summary)
     return out_path, detail
@@ -499,7 +502,7 @@ def _run_creators(
                 report_lines, creator, max_videos, backfill_per_creator,
                 cutoff_ts, use_vision,
             )
-        except (DigestError, requests.RequestException) as exc:
+        except (DigestError, requests.RequestException, SummaryEmptyError) as exc:
             report_lines.append(f"[{name}] 失败隔离, 跳过本轮: {exc}")
             print(f"[{name}] 失败隔离, 跳过本轮: {exc}", file=sys.stderr)
 
