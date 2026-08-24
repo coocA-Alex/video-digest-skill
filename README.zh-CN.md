@@ -1,13 +1,13 @@
 # video-digest-skill — 视频解析与笔记
 
-> **不用重看视频就能记住它。** video-digest 把 B站视频和本地录制转成结构化、可核验的笔记 — 字幕直取或语音转写、视觉模型核验关键画面、严格区分事实与观点。模型自带：默认 MiMo，改一行配置即可换成任意 OpenAI 兼容模型。
+> **不用重看视频就能记住它。** video-digest 把 B站视频、小红书推文/视频和本地录制转成结构化、可核验的笔记 — 字幕直取或语音转写、视觉模型核验关键画面、图片文字提取、严格区分事实与观点。模型自带：默认 MiMo，改一行配置即可换成任意 OpenAI 兼容模型。
 
 [English](README.md) | 简体中文
 
 ## 亮点
 
-- **双源输入**：B站 AI 字幕（精确到秒）或任意本地视频文件
-- **多模态管道**：语音转写 + 帧级画面核验
+- **三源输入**：B站 AI 字幕（精确到秒）、小红书推文/视频（自动类型判断）或任意本地视频文件
+- **多模态管道**：语音转写 + 帧级画面核验 + 图片文字提取
 - **事实/观点分离**：结构化总结，让每条论断可独立核验
 - **模型自带**：一行配置切换任意 OpenAI 兼容模型
 - **零凭证入库**：key 只走环境变量
@@ -27,6 +27,7 @@
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | 视频抽帧 | `scripts/video_frames.py` | 流式抽帧 → 时间戳 manifest（ffmpeg） |
 | 帧画面核验管道 | `scripts/video_vision.py` | 帧批量 → MiMo 读帧 → 时间戳视觉摘要（并发 4 workers） |
+| 小红书推文/视频解析 | `scripts/xhs_note.py` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
 
 ## 安装
 
@@ -48,8 +49,8 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
    ```
    MIMO_API_KEY=你的MiMo开放平台key
    DEEPSEEK_API_KEY=你的DeepSeek key
-   SESSDATA=你的B站登录cookie（可选，部分视频字幕需要）
    ```
+   登录 cookie 一律存**仓库外**（绝不提交）：B站 SESSDATA → `~/.bili_sessdata`；小红书 web_session → `~/.xhs_web_session`。脚本只读这些路径，从不打印。
 2. 多模态模型可替换：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），换 OpenAI 兼容模型 = 改配置；协议不同的模型需新增适配器脚本。
 3. **Agent 兼容**：SKILL.md 为标准格式（Claude Code / Codex / Cursor / OpenClaw 通用）；scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（向后兼容）。
 
@@ -63,6 +64,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
 ## 免责声明
 
 - 仅供**个人学习与研究**使用：遵守 B站《用户协议》与相关法规，勿商用、勿批量抓取
+- 小红书：仅按需解析单条推文（用户指定链接），不逆向签名、不采集列表/评论
 - 字幕/画面内容版权归原作者与平台；总结输出仅供个人参考
 - cookies 高频访问可能触发账号风控，风险自负
 - 平台接口可能变更导致功能失效，属正常现象

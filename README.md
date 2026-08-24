@@ -1,13 +1,13 @@
 # video-digest-skill — Video Parsing & Notes
 
-> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
+> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos, Xiaohongshu (RED) notes/videos, and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, extracting text from images, and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 ## Highlights
 
-- **Dual input**: Bilibili AI subtitles (second-precision) or any local video file
-- **Multimodal pipeline**: speech transcription + frame-level vision verification
+- **Triple input**: Bilibili AI subtitles (second-precision), Xiaohongshu notes/videos (auto type-detect), or any local video file
+- **Multimodal pipeline**: speech transcription + frame-level vision verification + image-text extraction
 - **Fact/opinion split**: structured summaries that keep claims verifiable
 - **Bring your own model**: one config line swaps in any OpenAI-compatible provider
 - **Zero credentials in repo**: keys live in environment variables only
@@ -27,6 +27,7 @@
 | Batch tracking | `scripts/digest_weekly.py` | Bilibili followed-creator incremental archive (creators via `config/creators.example.json`) |
 | Frame extraction | `scripts/video_frames.py` | streaming frame extraction with timestamp manifest (ffmpeg) |
 | Frame vision pipeline | `scripts/video_vision.py` | batch frames → MiMo vision → timestamped visual summary (4 concurrent workers) |
+| XHS note/video parsing | `scripts/xhs_note.py` | Xiaohongshu link → type detect (video/image) → download → optional ASR/frames/image-text (web_session in `~/.xhs_web_session`) |
 
 ## Install
 
@@ -48,8 +49,8 @@ Natural-language triggers: **"parse this video [URL/BV]" / "parse this local vid
    ```
    MIMO_API_KEY=your_mimo_platform_key
    DEEPSEEK_API_KEY=your_deepseek_key
-   SESSDATA=your_bilibili_cookie  # optional, some videos need it
    ```
+   Login cookies live **outside the repo** (never committed): Bilibili SESSDATA → `~/.bili_sessdata`; Xiaohongshu web_session → `~/.xhs_web_session`. Scripts read these paths only and never print them.
 2. Swappable models: edit `config/multimodal.json` (asr/vision/summarize sections: provider/model/base_url/api_key_env). OpenAI-compatible swap = config change; different protocols need a new adapter script.
 3. **Agent compatibility**: SKILL.md is standard format (Claude Code / Codex / Cursor / OpenClaw); scripts are plain Python CLI with no agent dependency; key resolution order = environment → project-local config → Claude Code global config (legacy fallback).
 
@@ -63,6 +64,7 @@ Natural-language triggers: **"parse this video [URL/BV]" / "parse this local vid
 ## Disclaimer
 
 - For **personal learning/research only**: follow Bilibili ToS, no commercial/bulk scraping
+- Xiaohongshu: parse single notes on demand only (user-provided links); no signature reverse-engineering, no list/comment harvesting
 - Subtitle/frame content belongs to original creators and platforms; summaries for personal reference only
 - Cookie-heavy access may trigger account risk control — use at your own risk
 - Platform APIs may change and break — normal for this kind of tool
