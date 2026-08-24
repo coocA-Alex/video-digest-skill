@@ -1,12 +1,26 @@
 ---
 name: video-digest
-description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取、结构化总结、笔记归档。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、看小红书推文。
+version: "0.1.0"
+description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、看小红书推文。
+author: GUGE
+tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr]
 license: MIT
 metadata:
   version: 0.1.0
 ---
 
 # 视频解析与情报追踪
+
+## Purpose
+
+把视频/图文内容转成结构化、可核验的笔记：字幕直取或语音转写、画面核验、图片文字提取，事实与观点分离，供个人学习与研究复用。
+
+## Prerequisites
+
+- Python 3.11+ 与 `requests`；`ffmpeg`（画面核验/音频提取场景）
+- MiMo API key（多模态 ASR/视觉，`MIMO_API_KEY` 环境变量或项目 .env）
+- LLM 总结 key（`ANTHROPIC_AUTH_TOKEN` 或项目 .env，DeepSeek flash 建议 max_tokens=50000）
+- B站字幕直取需 SESSDATA（`~/.bili_sessdata`）；小红书解析需 web_session（`~/.xhs_web_session`）
 
 ## 环境依赖
 
@@ -61,8 +75,52 @@ metadata:
 - 小红书仅按需解析单条推文（用户指定链接），不逆向签名、不采集列表/评论
 - 输出仅供个人参考，不得二次分发
 
-## 已知限制
+## Limitations
 
 - B站 AI 字幕多数需登录态（cookies）；接口可能变动
 - MIMO ASR 限 wav/mp3、base64 ≤10MB（长音频需分段）
 - 多 P 视频默认总结第一 P
+- 小红书仅按需解析单条推文（用户指定链接）；未登录无法取视频流/互动数据
+
+## Troubleshooting
+
+- **总结输出为空/过短**：思考型模型（deepseek-v4-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块
+- **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他
+- **小红书无 __INITIAL_STATE__**：登录态失效或链接过期 → 重新提供 web_session / 链接
+- **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
+
+## Available Scripts
+
+| Script | Purpose | Arguments |
+|--------|---------|-----------|
+| `bili_subtitle.py` | B站 AI 字幕直取 | `<bvid> <cid>` |
+| `bili_summarize.py` | 字幕 → 结构化总结 | `<subtitle.txt> <owner> [out.md] [style]` |
+| `xhs_note.py` | 小红书推文/视频解析（自动类型判断） | `<explore_url> [--name noteX] [--extract]` |
+| `local_video_pipeline.py` | 本地视频 → 转写 → 笔记 | `<video> [--no-vision] [--owner] [--template]` |
+| `digest_weekly.py` | B站关注列表批量追踪 | `[--backfill N] [--cutoff DATE]` |
+| `mimo_asr.py` | 音频转写 | `<audio> [lang]` |
+| `mimo_vision.py` | 图片/帧视觉理解 | `<image...> [--prompt]` |
+| `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |
+| `video_vision.py` | 帧批量读帧 → 视觉摘要 | `<bvid> [--force]` |
+
+## Examples
+
+```bash
+# B站单视频字幕 + 总结
+python scripts/bili_subtitle.py BV1xxx <cid>
+python scripts/bili_summarize.py tmp/BV1xxx.txt 博主名 notes/out.md stock
+
+# 小红书推文/视频（自动判断类型 + 提取）
+python scripts/xhs_note.py "https://www.xiaohongshu.com/explore/<id>?xsec_token=..." --extract
+
+# 本地视频（转写 + 画面 + 笔记）
+python scripts/local_video_pipeline.py lecture.mp4 --owner 讲座
+```
+
+Agent 调用方式（run_script）:
+
+```text
+run_script("scripts/bili_subtitle.py", ["BV1xxx", "cid"])            # 拉字幕
+run_script("scripts/xhs_note.py", [url, "--extract"])                # 小红书解析
+run_script("scripts/bili_summarize.py", [sub, owner, out, "stock"])  # 总结
+```
