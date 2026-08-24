@@ -1,6 +1,6 @@
 ---
 name: video-digest
-description: 视频内容解析与笔记。兼容 B站视频与本地视频文件：字幕直取或语音转写、画面核验、结构化总结、笔记归档。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记。
+description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取、结构化总结、笔记归档。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、看小红书推文。
 license: MIT
 metadata:
   version: 0.1.0
@@ -13,7 +13,8 @@ metadata:
 | 环境变量 | 说明 | 必需 |
 |---------|------|------|
 | `MIMO_API_KEY` | MiMo API 密钥（多模态，与官方 MiMo-Skills 一致） | 是 |
-| `SESSDATA` | B站登录 cookie（AI 字幕直取） | 部分视频需要 |
+| `SESSDATA` | B站登录 cookie（AI 字幕直取，存 `~/.bili_sessdata`） | 部分视频需要 |
+| web_session | 小红书登录 cookie（推文/视频解析，存 `~/.xhs_web_session`） | 小红书需要 |
 | DS key（`ANTHROPIC_AUTH_TOKEN` 或项目 .env） | LLM 总结 | 是 |
 
 | 依赖 | 说明 | 必需 |
@@ -33,18 +34,21 @@ metadata:
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg） |
 | 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
+| 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
 
 ## 工作流（解析一个视频）
 
 1. **字幕**：优先 B站 AI 字幕直取；无字幕/非 B站 → 音频转写（MIMO ASR 或配置的其他模型）
 2. **画面核验（可选）**：需要看图表/PPT/实验画面时，抽帧 → 视觉模型理解
-3. **总结**：LLM 结构化总结（事实/观点双轨，可衔接预测提取）
-4. **归档**：输出 markdown 到 data/ 或指定位置
+3. **小红书推文（可选）**：`scripts/xhs_note.py <url> --extract` — 自动判断视频/图文；视频走 ASR+帧，图文走图片文字提取（正文常在图片里）
+4. **总结**：LLM 结构化总结（事实/观点双轨，可衔接预测提取）
+5. **归档**：输出 markdown 到 data/ 或指定位置
 
 ## 配置（凭证隔离 — 重要）
 
 - **API key 一律从环境变量读取**（agent 无关，Claude Code / Codex / 其他 agent 均可）：
-  - `MIMO_API_KEY`（多模态）、`DEEPSEEK_API_KEY`（总结，兼容 `ANTHROPIC_AUTH_TOKEN`）、B站 SESSDATA（存 `~/.bili_sessdata`，仓库外）
+  - `MIMO_API_KEY`（多模态）、`DEEPSEEK_API_KEY`（总结，兼容 `ANTHROPIC_AUTH_TOKEN`）
+- **登录凭证一律存仓库外文件**：B站 SESSDATA（`~/.bili_sessdata`）、小红书 web_session（`~/.xhs_web_session`）；scripts 只读这些路径，不打印不落盘
 - **本 skill 及 scripts 中不包含任何真实 key/凭证**
 - **换模型**：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），
   例如总结换 OpenAI 兼容模型 = 改 base_url + model + api_key_env；协议不同的模型需新增适配器脚本
@@ -54,6 +58,7 @@ metadata:
 ## 合规
 
 - 个人学习/研究使用；遵守平台协议；不批量抓取、不商用他人内容
+- 小红书仅按需解析单条推文（用户指定链接），不逆向签名、不采集列表/评论
 - 输出仅供个人参考，不得二次分发
 
 ## 已知限制
