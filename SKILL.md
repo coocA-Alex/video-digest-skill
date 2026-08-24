@@ -2,7 +2,7 @@
 name: video-digest
 version: "0.1.0"
 description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、看小红书推文。
-author: GUGE
+author: coocA-Alex
 tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr]
 license: MIT
 metadata:
