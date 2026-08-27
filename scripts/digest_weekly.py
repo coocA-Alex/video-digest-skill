@@ -45,8 +45,10 @@ from bili_subtitle import (  # noqa: E402
     signed_params,
 )
 from bili_summarize import SummaryEmptyError, detect_suspicious, load_api_key, summarize_subtitle  # noqa: E402
+from bili_media import enum_pages, fetch_audio, needs_asr_fallback  # noqa: E402
 from video_frames import FrameExtractError, extract_frames, get_stream_info  # noqa: E402
 from video_vision import TECH_PROMPT, VISION_PROMPT, VisionError, summarize_frames  # noqa: E402
+from local_video_pipeline import extract_segments, transcribe_segments  # noqa: E402
 
 DEFAULT_VISION_FRAMES = 20
 # B站 AI 字幕滞后生成: 无字幕视频 N 秒后重试, 避免永久漏掉
@@ -309,7 +311,36 @@ def process_video(
     detail = fetch_video_detail(bvid)
     if archive_exists(bvid, detail):
         return None, detail
-    subtitle_text = fetch_subtitle_text(sessdata, bvid, str(detail["cid"]))
+    pages = enum_pages(bvid)
+    main_p = max(pages, key=lambda p: p["duration"])  # 主 P = 时长最长
+    subtitle_text = fetch_subtitle_text(sessdata, bvid, str(main_p["cid"]))
+
+    # 多P: 其余 P 有字幕则拉取, 差异 (含内容/长度) 追加到笔记
+    p_notes: list[str] = []
+    for p in pages:
+        if p["cid"] == main_p["cid"]:
+            continue
+        try:
+            t = fetch_subtitle_text(sessdata, bvid, str(p["cid"]))
+            if t and len(t) > 100:
+                p_notes.append(f"- P{p['cid']} (时长 {p['duration']}s, 字幕 {len(t)} 字符)")
+        except (NoSubtitleError, SubtitleError):
+            pass
+
+    # 长视频字幕覆盖不足 → ASR 兜底 (dash 音频 + 分段转写, 复用 lecture 管线)
+    subtitle_source = "bili-ai"
+    if needs_asr_fallback(subtitle_text, int(detail["duration"])):
+        print("    [asr] 字幕覆盖不足, ASR 兜底", file=sys.stderr)
+        try:
+            mp3 = fetch_audio(bvid, int(main_p["cid"]))
+            segs = extract_segments(mp3, PROJECT_ROOT / "tmp" / f"{bvid}_asr", 5, False)
+            transcript, failures = transcribe_segments(segs, "zh", 5, False)
+            if transcript and not failures:
+                subtitle_text = transcript
+                subtitle_source = "mimo-asr"
+        except Exception as exc:  # 兜底失败降级纯字幕, 不阻塞 run
+            print(f"    [asr] 兜底失败: {exc}", file=sys.stderr)
+
     vision_summary = (
         _collect_vision_summary(sessdata, bvid, detail, _vision_prompt(template))
         if use_vision else None
@@ -337,6 +368,13 @@ def process_video(
                 template,
                 str(detail.get("desc") or ""),
             )
+    extra = []
+    if subtitle_source == "mimo-asr":
+        extra.append("> 字幕来源: MIMO ASR 兜底 (B站 AI 字幕覆盖不足, 无时间戳)")
+    if p_notes:
+        extra.append("## P 对照说明\n" + "\n".join(p_notes))
+    if extra:
+        summary = summary.rstrip() + "\n\n---\n\n" + "\n\n".join(extra)
     out_path = archive_note(str(detail["owner"]), bvid, detail, summary)
     return out_path, detail
 

@@ -7,6 +7,7 @@ verified independently. Writes markdown to a caller-provided output path.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -344,24 +345,29 @@ class SummaryEmptyError(Exception):
 
 
 def load_api_key() -> str:
-    """Load the LLM key — agent-agnostic resolution order:
+    """Load the LLM key — resolution order:
 
-    1. environment (api_key_env from config, e.g. DEEPSEEK_API_KEY, or
-       ANTHROPIC_AUTH_TOKEN) — works in any agent (Claude Code/Codex/etc.)
-    2. project-local config/ds_key.local.json (gitignored)
-    3. ~/.claude/settings.json (Claude Code legacy fallback)
+    1. env DEEPSEEK_API_KEY (project-specific env var)
+    2. project-local config/ds_key.local.json (gitignored) — the project's
+       own key lives here; must come BEFORE generic env vars so the shared
+       ANTHROPIC_AUTH_TOKEN (MetaAgent's key) is never charged for this
+       project's calls (2026-08-27 incident)
+    3. env ANTHROPIC_AUTH_TOKEN (generic fallback, e.g. open-source users)
+    4. ~/.claude/settings.json (Claude Code legacy fallback)
     """
     import os
 
-    for env_name in (_SUMMARIZE_CFG["api_key_env"], "ANTHROPIC_AUTH_TOKEN"):
-        key = os.getenv(env_name)
-        if key:
-            return key
+    key = os.getenv(_SUMMARIZE_CFG["api_key_env"])
+    if key:
+        return key
     if LOCAL_KEY_PATH.exists():
         with open(LOCAL_KEY_PATH, encoding="utf-8") as f:
             api_key = json.load(f).get("api_key", "")
         if api_key:
             return api_key
+    key = os.getenv("ANTHROPIC_AUTH_TOKEN")
+    if key:
+        return key
     if SETTINGS_PATH.exists():
         with open(SETTINGS_PATH, encoding="utf-8") as f:
             api_key = json.load(f).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
@@ -409,6 +415,99 @@ def _post_completions(api_key: str, model: str, messages: list[dict[str, str]], 
     return response.json()["choices"][0]["message"]["content"]
 
 
+# --- 超长字幕: 语义切块 + 分块总结 + 二次合并 --------------------------------
+# 阈值与块级缓存设计复用 local_video_merge (40000 安全线 / 30000 块起点)。
+# 切点不硬切在字符数上: 在 [lo, hi] 区间内找最后一个语义边界
+# (字幕 [mm:ss] 时间戳行 → 空行/段落结尾 → 区间末尾硬切兜底)。
+
+SAFE_INPUT_CHARS = 40000
+CHUNK_LO_CHARS = 30000
+CHUNK_HI_CHARS = 35000
+LONG_SUMMARY_CACHE_DIR = Path(__file__).resolve().parent.parent / "tmp" / "long_summary_cache"
+
+_TS_LINE_RE = re.compile(r"^\[\d{2}:\d{2}(?::\d{2})?\]")
+
+
+def _chunk_boundary(text: str, lo: int = CHUNK_LO_CHARS, hi: int = CHUNK_HI_CHARS) -> int:
+    """Find a semantic cut point within [lo, hi]: last [mm:ss] line, else last
+    blank line, else hard cut at hi. Returns the character index (line end)."""
+    seg = text[lo:hi]
+    lines = seg.split("\n")
+    pos = lo
+    found = False
+    for i, line in enumerate(lines):
+        end = pos + len(line) + 1  # include the newline
+        if end > hi:
+            break
+        if _TS_LINE_RE.match(line.strip()):
+            pos = end
+            found = True
+    if found:
+        return pos
+    # 无时间戳行: 退回空行 (段落边界)
+    for i, line in enumerate(lines):
+        end = pos + len(line) + 1
+        if end > hi:
+            break
+        if not line.strip():
+            pos = end
+    return pos if pos > lo else hi
+
+
+def _summarize_long(
+    api_key: str, owner: str, title: str, subtitle_text: str,
+    vision_summary: str | None, template: str, desc: str | None,
+) -> str:
+    """Chunk a long subtitle (> SAFE_INPUT_CHARS) at semantic boundaries,
+    summarize each chunk (hash-cached), then merge chunk summaries into one
+    coherent note (one extra call; only for over-long inputs)."""
+    cache_dir = LONG_SUMMARY_CACHE_DIR
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    chunks: list[str] = []
+    pos = 0
+    while len(subtitle_text) - pos > SAFE_INPUT_CHARS:
+        cut = _chunk_boundary(subtitle_text, pos + CHUNK_LO_CHARS, min(pos + CHUNK_HI_CHARS, len(subtitle_text)))
+        chunks.append(subtitle_text[pos:cut])
+        pos = cut
+    chunks.append(subtitle_text[pos:])
+
+    import hashlib
+    block_summaries: list[str] = []
+    for i, chunk in enumerate(chunks):
+        digest = hashlib.md5(chunk.encode("utf-8")).hexdigest()[:12]
+        cache_file = cache_dir / f"{digest}.md"
+        if cache_file.exists():
+            block_summaries.append(cache_file.read_text(encoding="utf-8").strip())
+            continue
+        messages = build_prompt(owner, title, chunk, None, template, desc)
+        content = _post_completions(api_key, MODEL, messages)
+        if not content or not content.strip():
+            content = _post_completions(api_key, FALLBACK_MODEL, messages)
+        if not content or not content.strip():
+            raise SummaryEmptyError(f"long-summary chunk {i + 1}/{len(chunks)} empty")
+        cache_file.write_text(content, encoding="utf-8")
+        block_summaries.append(content.strip())
+
+    merged = "\n\n---\n\n".join(block_summaries)
+    merge_prompt = (
+        "以下是同一长视频字幕按语义分块后的多个分块总结。请将它们合并为一份连贯完整的笔记：\n"
+        "1. 消除分块间的重复内容，保留全部关键信息与数字\n"
+        "2. 保持逻辑顺序，按内容主题组织（而非按块顺序）\n"
+        "3. 保留原有模板结构（若各块结构不同则统一为最完整者）\n\n"
+        f"视频标题: {title}\nUP主: {owner}\n\n分块总结:\n{merged}"
+    )
+    messages = [
+        {"role": "system", "content": "输出使用简体中文，markdown 格式。"},
+        {"role": "user", "content": merge_prompt},
+    ]
+    final = _post_completions(api_key, MODEL, messages)
+    if not final or not final.strip():
+        final = _post_completions(api_key, FALLBACK_MODEL, messages)
+    if not final or not final.strip():
+        raise SummaryEmptyError("long-summary merge empty")
+    return final
+
+
 def summarize_subtitle(
     api_key: str,
     owner: str,
@@ -425,6 +524,8 @@ def summarize_subtitle(
     """
     if not subtitle_text.strip():
         raise ValueError("subtitle text is empty")
+    if len(subtitle_text) > SAFE_INPUT_CHARS:
+        return _summarize_long(api_key, owner, title, subtitle_text, vision_summary, template, desc)
     messages = build_prompt(owner, title, subtitle_text, vision_summary, template, desc)
     for attempt in range(2):
         try:
