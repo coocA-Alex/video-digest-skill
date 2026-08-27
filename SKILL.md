@@ -43,7 +43,8 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | 5 领域模板（stock/finance/tech/general/lecture）; general 模板 = 逻辑链+精选事实/观点+思考与行动层; 可选传视频简介校正字幕音译 |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | 5 领域模板（stock/finance/tech/general/lecture）; general 模板 = 逻辑链+精选事实/观点+思考与行动层; 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
+| 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg） |
@@ -52,7 +53,7 @@ metadata:
 
 ## 工作流（解析一个视频）
 
-1. **字幕**：优先 B站 AI 字幕直取；无字幕/非 B站 → 音频转写（MIMO ASR 或配置的其他模型）
+1. **字幕**：优先 B站 AI 字幕直取；无字幕/非 B站 → 音频转写（MIMO ASR 或配置的其他模型）；**长视频（>20min）字幕覆盖 <70%**（B站 AI 字幕常只覆盖口播部分）→ 自动 ASR 兜底（`bili_media.fetch_audio` dash 下载 + 分段转写）
 2. **画面核验（可选）**：需要看图表/PPT/实验画面时，抽帧 → 视觉模型理解
 3. **小红书推文（可选）**：`scripts/xhs_note.py <url> --extract` — 自动判断视频/图文；视频走 ASR+帧，图文走图片文字提取（正文常在图片里）
 4. **总结**：LLM 结构化总结（可传视频简介 desc 校正字幕音译；general 模板 = 逻辑链+精选+思考与行动层）
@@ -80,12 +81,14 @@ metadata:
 
 - B站 AI 字幕多数需登录态（cookies）；接口可能变动
 - MIMO ASR 限 wav/mp3、base64 ≤10MB（长音频需分段）
-- 多 P 视频默认总结第一 P
+- 多 P 视频：默认主 P（时长最长）总结 + 其余 P 有字幕则拉取并补"P 对照说明"节（digest 批量流程）；手动流程可用 `bili_media.enum_pages` 定向处理任意 P
 - 小红书仅按需解析单条推文（用户指定链接）；未登录无法取视频流/互动数据
 
 ## Troubleshooting
 
-- **总结输出为空/过短**：思考型模型（deepseek-v4-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块
+- **总结输出为空/过短**：思考型模型（deepseek-v4-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块；**字幕 >40k 字符自动语义分块**（`bili_summarize` 内置，块级缓存 tmp/long_summary_cache/ 支持断点续跑）
+- **长视频字幕只覆盖开头**：B站 AI 字幕对长视频可能只生成口播部分（如 96min 仅 9min）→ `needs_asr_fallback` 自动判定，走 ASR 兜底；兜底失败降级纯字幕并记录 no_subtitle 重试
+- **ASR 音频下载失败（dash 403/截断）**：dash 流需 UA+Referer+Cookie 完整头（`bili_media.fetch_audio` 已内置）；URL 带 deadline 中途失效 → 重试时刷新 URL；分段缓存陈旧时先清 `tmp/{bvid}_asr/`
 - **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他。**风控期间备选**：从视频页面 HTML（`curl --compressed`）提取 cid + 标题/简介，字幕走 player API（通常未风控），视频流走 playurl API（fnval=4048 取 dash）
 - **小红书无 __INITIAL_STATE__**：登录态失效或链接过期 → 重新提供 web_session / 链接
 - **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
@@ -95,7 +98,8 @@ metadata:
 | Script | Purpose | Arguments |
 |--------|---------|-----------|
 | `bili_subtitle.py` | B站 AI 字幕直取 | `<bvid> <cid>` |
-| `bili_summarize.py` | 字幕 → 结构化总结 | `<subtitle.txt> <owner> [out.md] [style]` |
+| `bili_media.py` | 多P 枚举 / 字幕覆盖检测 / dash 音频下载 | 库函数: `enum_pages` `check_coverage` `needs_asr_fallback` `fetch_audio` |
+| `bili_summarize.py` | 字幕 → 结构化总结（超长自动分块） | `<subtitle.txt> <owner> [out.md] [style]` |
 | `xhs_note.py` | 小红书推文/视频解析（自动类型判断） | `<explore_url> [--name noteX] [--extract]` |
 | `local_video_pipeline.py` | 本地视频 → 转写 → 笔记 | `<video> [--no-vision] [--owner] [--template]` |
 | `digest_weekly.py` | B站关注列表批量追踪 | `[--backfill N] [--cutoff DATE]` |
@@ -116,6 +120,9 @@ python scripts/xhs_note.py "https://www.xiaohongshu.com/explore/<id>?xsec_token=
 
 # 本地视频（转写 + 画面 + 笔记）
 python scripts/local_video_pipeline.py lecture.mp4 --owner 讲座
+
+# 多P 视频定向处理任意 P（如 112P 课程的第 5 讲）
+python -c "import sys; sys.path.insert(0,'scripts'); from bili_media import enum_pages; print([(p['cid'],p['part']) for p in enum_pages('BV1xxx')])"
 ```
 
 Agent 调用方式（run_script）:
