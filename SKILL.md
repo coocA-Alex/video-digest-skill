@@ -68,6 +68,12 @@ metadata:
 - **本 skill 及 scripts 中不包含任何真实 key/凭证**
 - **换模型**：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），
   例如总结换 OpenAI 兼容模型 = 改 base_url + model + api_key_env；协议不同的模型需新增适配器脚本
+- **视觉模型可选清单**（画面核验，默认 MIMO；换模型见下）：
+  - `mimo-v2.5`（默认，Anthropic 兼容 messages API，`MIMO_API_KEY`）
+  - `glm-5.3-flash`（智谱原生多模态，OpenAI 兼容 chat/completions，`https://open.bigmodel.cn/api/paas/v4/chat/completions`，key 用 `ZHIPU_API_KEY`；图片/视频输入、1M 上下文；thinking 始终开启需留 max_tokens 余量）
+  - GPT 视觉（待 Codex 侧测试后补充；OpenAI 兼容格式与 GLM 相同）
+  - **替换步骤**：① multimodal.json 的 vision 段改 base_url/model/api_key_env → ② 若协议与 Anthropic messages 不同（如 GLM/GPT 的 OpenAI 格式），修改 `mimo_vision.py` 请求构造（content 数组 `image`+`source/base64` → `image_url`+`url` 的 data URL；header `api-key` → `Authorization: Bearer`；响应取 `choices[0].message.content`）→ ③ .env 配对应 key。协议相同的模型仅改配置即可
+  - **不另建常驻桥接脚本**；可选模型清单与接入要点见 `docs/vision-model-options.md`
 - 示例配置见 `config/multimodal.json`（不含 key）
 - **Agent 兼容**：SKILL.md 为标准格式（Claude Code / Codex / Cursor / OpenClaw 通用）；scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（向后兼容）
 
