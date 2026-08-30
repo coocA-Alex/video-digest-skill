@@ -27,7 +27,7 @@ NOTES_DIR = PROJECT_ROOT / "notes"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bili_summarize  # noqa: E402
-import mimo_asr  # noqa: E402
+import asr  # noqa: E402  (provider 由 multimodal.json 路由)
 import video_vision  # noqa: E402
 
 FFMPEG = "ffmpeg"
@@ -106,7 +106,7 @@ def transcribe_segments(
         timeout = seg_min * 60 * TIMEOUT_FACTOR + TIMEOUT_PADDING
         print(f"  转写 {seg.name} ({i + 1}/{len(segs)}) ...")
         try:
-            text = mimo_asr.analyze_audio(str(seg), language=language, timeout=timeout)
+            text = asr.analyze_audio(str(seg), language=language, timeout=timeout)
             out_txt.write_text(text, encoding="utf-8")
         except Exception as exc:
             failures.append(f"{seg.name}: {exc}")

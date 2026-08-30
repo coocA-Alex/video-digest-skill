@@ -103,7 +103,7 @@ def extract_content(name: str, out_dir: Path) -> None:
             check=False,
         )
         if audio.exists():
-            from mimo_asr import analyze_audio
+            from asr import analyze_audio
             text = analyze_audio(str(audio), "auto")
             (out_dir / "asr.txt").write_text(text, encoding="utf-8")
             print(f"asr: {len(text)} chars -> {out_dir / 'asr.txt'}")
@@ -117,7 +117,7 @@ def extract_content(name: str, out_dir: Path) -> None:
         print(f"frames: {len(list(frames_dir.glob('f_*.jpg')))}")
     images = sorted(out_dir.glob("img*.jpg"))
     if images:
-        from mimo_vision import analyze_images
+        from vision import analyze_images
         prompt = "逐张提取图片中的完整文本内容(原文逐字), 若含图表/公式请描述结构。输出格式: 图N: [提取文本]"
         text = analyze_images([str(p) for p in images], prompt)
         if isinstance(text, str):

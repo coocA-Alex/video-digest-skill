@@ -44,7 +44,13 @@ from bili_subtitle import (  # noqa: E402
     mixin_key,
     signed_params,
 )
-from bili_summarize import SummaryEmptyError, detect_suspicious, load_api_key, summarize_subtitle  # noqa: E402
+from bili_summarize import (  # noqa: E402
+    SummaryEmptyError,
+    detect_suspicious,
+    detect_template,
+    load_api_key,
+    summarize_subtitle,
+)
 from bili_media import enum_pages, fetch_audio, needs_asr_fallback  # noqa: E402
 from video_frames import FrameExtractError, extract_frames, get_stream_info  # noqa: E402
 from video_vision import TECH_PROMPT, VISION_PROMPT, VisionError, summarize_frames  # noqa: E402
@@ -268,11 +274,12 @@ def archive_note(owner: str, bvid: str, detail: dict[str, object], summary: str)
     return out_path
 
 
-def archive_exists(bvid: str, detail: dict[str, object]) -> bool:
-    """True if the note file already exists on disk (idempotency check)."""
+def find_archive(bvid: str, detail: dict[str, object]) -> Path | None:
+    """Return the note path if it already exists on disk, else None."""
     date_str = datetime.fromtimestamp(int(detail["pubdate"])).strftime("%Y-%m-%d")
     owner_dir = NOTES_DIR / safe_filename(str(detail["owner"]))
-    return (owner_dir / f"{date_str}_{bvid}.md").exists()
+    path = owner_dir / f"{date_str}_{bvid}.md"
+    return path if path.exists() else None
 
 
 def _vision_prompt(template: str) -> str:
@@ -302,14 +309,16 @@ def process_video(
     api_key: str,
     bvid: str,
     use_vision: bool = True,
-    template: str = "stock",
+    template: str | None = None,
 ) -> tuple[Path | None, dict[str, object]]:
     """Run the full subtitle→vision→summarize→archive chain for one video.
 
+    template None → auto-detect by content type (LLM classify from
+    title/desc/subtitle head) after the subtitle is fetched.
     Returns (None, detail) when the note already exists on disk.
     """
     detail = fetch_video_detail(bvid)
-    if archive_exists(bvid, detail):
+    if find_archive(bvid, detail):
         return None, detail
     pages = enum_pages(bvid)
     main_p = max(pages, key=lambda p: p["duration"])  # 主 P = 时长最长
@@ -326,6 +335,13 @@ def process_video(
                 p_notes.append(f"- P{p['cid']} (时长 {p['duration']}s, 字幕 {len(t)} 字符)")
         except (NoSubtitleError, SubtitleError):
             pass
+
+    # 模板分流: 显式配置优先, 否则按内容类型自动分类 (2026-08-29 质量反馈)
+    if template is None:
+        template = detect_template(
+            api_key, str(detail["title"]), str(detail.get("desc") or ""), subtitle_text[:800]
+        )
+        print(f"    [template] 自动检测: {template}", file=sys.stderr)
 
     # 长视频字幕覆盖不足 → ASR 兜底 (dash 音频 + 分段转写, 复用 lecture 管线)
     subtitle_source = "bili-ai"
@@ -368,6 +384,12 @@ def process_video(
                 template,
                 str(detail.get("desc") or ""),
             )
+    # 短视频内容密度提示 (KH-QUALITY-2026-08-29-001 P3): <2min 标薄内容
+    if int(detail["duration"]) < 120:
+        summary = summary.rstrip() + (
+            f"\n\n> ⚠️ 短视频 ({detail['duration']}s): 内容密度低, "
+            "如无独立信息价值可考虑不入库\n"
+        )
     extra = []
     if subtitle_source == "mimo-asr":
         extra.append("> 字幕来源: MIMO ASR 兜底 (B站 AI 字幕覆盖不足, 无时间戳)")
@@ -410,8 +432,14 @@ def _should_process(processed: dict[str, object], bvid: str) -> bool:
 
 
 def _is_failure_line(line: str) -> bool:
-    """True for report lines that indicate a failed video, creator, or run."""
-    return any(k in line for k in ("失败", "崩溃", "Error", "error", "412"))
+    """True for report lines that indicate a failed video, creator, or run.
+
+    412 风控的失败隔离是自愈型 (下轮自动重试), 不弹窗打扰;
+    其余失败 (崩溃/空输出/视频错误) 弹窗通知。
+    """
+    if "失败隔离" in line and "412" in line:
+        return False
+    return any(k in line for k in ("失败", "崩溃", "Error", "error"))
 
 
 def _alert_failures(report_lines: list[str]) -> None:
@@ -467,7 +495,8 @@ def _handle_video(
         report_lines.append(f"  {tag}失败 {bvid}: {exc}")
         return
     if out_path is None:
-        _mark_processed(processed, bvid, detail, None)
+        # 笔记已存在: 补记实际路径, 否则 _should_process 每次运行都重复检查
+        _mark_processed(processed, bvid, detail, find_archive(bvid, detail))
         report_lines.append(f"  {tag}已存在 {bvid}, 补记 state")
         return
     _mark_processed(processed, bvid, detail, out_path)
@@ -560,12 +589,13 @@ def _run_one_creator(
     """Process daily-new and backfill videos for one creator."""
     name = str(creator["name"])
     mid = int(creator["mid"])
-    template = str(creator.get("template", "stock"))
+    template = creator.get("template")  # None → 按内容类型自动检测 (2026-08-29)
     creator_vision = bool(creator.get("vision", False)) and use_vision
     videos = fetch_latest_videos(sessdata, mid, max_videos)
     new_videos = [v for v in videos if _should_process(processed, str(v["bvid"]))]
     report_lines.append(
-        f"[{name}] 最近 {len(videos)} 条, 新 {len(new_videos)} 条, 模板={template}, 视觉={'开' if creator_vision else '关'}"
+        f"[{name}] 最近 {len(videos)} 条, 新 {len(new_videos)} 条, "
+        f"模板={template or 'auto'}, 视觉={'开' if creator_vision else '关'}"
     )
     for video in new_videos:
         _handle_video(

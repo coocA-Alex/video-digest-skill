@@ -16,7 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TMP_DIR = PROJECT_ROOT / "tmp"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from mimo_vision import analyze_image  # noqa: E402
+from vision import analyze_image  # noqa: E402  (provider 由 multimodal.json 路由)
 
 VISION_PROMPT = (
     "这是B站视频截图。只提取画面中的数字和数据(指数点位、涨跌幅、成交额、"
