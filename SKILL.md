@@ -43,7 +43,7 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | 5 领域模板（stock/finance/tech/general/lecture）; general 模板 = 逻辑链+精选事实/观点+思考与行动层; 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | 内容类型模板（stock/finance/tech/news/teaching/general/lecture 等）; **模板按内容类型分流**（显式配置优先 → LLM 自动分类 detect_template → general 兜底）; 资讯类（news/finance）**按叙事链分节记录**（事件→起因→影响→观点），教学类（teaching）呈现问题→方法论结构，杜绝口播碎片罗列; 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
 | 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
@@ -75,7 +75,8 @@ metadata:
   - **替换步骤**：① multimodal.json 的 vision 段改 base_url/model/api_key_env → ② 若协议与 Anthropic messages 不同（如 GLM/GPT 的 OpenAI 格式），修改 `mimo_vision.py` 请求构造（content 数组 `image`+`source/base64` → `image_url`+`url` 的 data URL；header `api-key` → `Authorization: Bearer`；响应取 `choices[0].message.content`）→ ③ .env 配对应 key。协议相同的模型仅改配置即可
   - **不另建常驻桥接脚本**；可选模型清单与接入要点见 `docs/vision-model-options.md`
 - 示例配置见 `config/multimodal.json`（不含 key）
-- **Agent 兼容**：SKILL.md 为标准格式（Claude Code / Codex / Cursor / OpenClaw 通用）；scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（向后兼容）
+- **Agent 兼容**：**已验证集成：Claude Code、Codex Desktop**（2026-08-29：skill 发现、包结构、脚本语法在 Codex Desktop 验证通过；端到端 provider 执行待验证）。核心能力为 Python CLI，可供能够读取 Markdown 技能说明并执行本地命令的其他 agent（Cursor/OpenClaw 等）适配；其他 agent 集成尚未实际验证。
+- **key 解析顺序** = 环境变量 → 项目本地配置 → Claude Code 全局配置（最后一项为 **Claude Code legacy fallback**，不作为 Codex 或其他 agent 的前置条件）
 
 ## 合规
 
@@ -131,10 +132,18 @@ python scripts/local_video_pipeline.py lecture.mp4 --owner 讲座
 python -c "import sys; sys.path.insert(0,'scripts'); from bili_media import enum_pages; print([(p['cid'],p['part']) for p in enum_pages('BV1xxx')])"
 ```
 
-Agent 调用方式（run_script）:
+Agent 调用方式:
+
+```bash
+# 通用 CLI 示例（Claude Code / Codex / 任何可执行本地命令的 agent 均适用）
+python scripts/bili_subtitle.py BV1xxx <cid>
+python scripts/xhs_note.py "https://www.xiaohongshu.com/explore/<id>?xsec_token=..." --extract
+python scripts/bili_summarize.py tmp/BV1xxx.txt 博主名 notes/out.md news
+```
 
 ```text
+# Claude Code 示例（run_script 为本工具专属能力, 其他 agent 请用上面的终端命令）
 run_script("scripts/bili_subtitle.py", ["BV1xxx", "cid"])            # 拉字幕
 run_script("scripts/xhs_note.py", [url, "--extract"])                # 小红书解析
-run_script("scripts/bili_summarize.py", [sub, owner, out, "stock"])  # 总结
+run_script("scripts/bili_summarize.py", [sub, owner, out, "news"])   # 总结（模板按内容类型自动分类）
 ```

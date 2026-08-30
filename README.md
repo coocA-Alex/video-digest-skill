@@ -11,7 +11,7 @@
 - **Fact/opinion split**: structured summaries that keep claims verifiable
 - **Bring your own model**: one config line swaps in any OpenAI-compatible provider
 - **Zero credentials in repo**: keys live in environment variables only
-- **Agent-agnostic**: works with Claude Code, Codex, Cursor, OpenClaw
+- **Tested integrations**: Claude Code and Codex Desktop (skill discovery + package layout validated 2026-08-29; end-to-end provider execution pending). Core pipeline is Python CLI-based and can be adapted to other agents that can load Markdown skill instructions and execute local commands. Other agent integrations have not yet been validated.
 
 > Personal-use tool, open-sourced. Built on Xiaomi MiMo multimodal models (ASR + vision) and DeepSeek for summarization — all swappable via config.
 
@@ -52,7 +52,7 @@ Natural-language triggers: **"parse this video [URL/BV]" / "parse this local vid
    ```
    Login cookies live **outside the repo** (never committed): Bilibili SESSDATA → `~/.bili_sessdata`; Xiaohongshu web_session → `~/.xhs_web_session`. Scripts read these paths only and never print them.
 2. Swappable models: edit `config/multimodal.json` (asr/vision/summarize sections: provider/model/base_url/api_key_env). OpenAI-compatible swap = config change; different protocols need a new adapter script.
-3. **Agent compatibility**: SKILL.md is standard format (Claude Code / Codex / Cursor / OpenClaw); scripts are plain Python CLI with no agent dependency; key resolution order = environment → project-local config → Claude Code global config (legacy fallback).
+3. **Agent compatibility**: Tested integrations: Claude Code and Codex Desktop. Scripts are plain Python CLI with no agent dependency; key resolution order = environment → project-local config → Claude Code global config (Claude Code legacy fallback, not a prerequisite for other agents).
 
 ## Open-source notice
 

@@ -11,7 +11,7 @@
 - **事实/观点分离**：结构化总结，让每条论断可独立核验
 - **模型自带**：一行配置切换任意 OpenAI 兼容模型
 - **零凭证入库**：key 只走环境变量
-- **多 agent 兼容**：Claude Code / Codex / Cursor / OpenClaw 通用
+- **已验证集成**：Claude Code、Codex Desktop（2026-08-29：skill 发现+包结构验证通过；端到端 provider 执行待验证）。核心为 Python CLI，可供能读取 Markdown 技能说明并执行本地命令的其他 agent 适配；其他 agent 尚未实际验证。
 
 > 个人自用工具开源分享。基于 Xiaomi MiMo 多模态模型（ASR + 视觉）与 DeepSeek 总结模型，均可配置替换。
 
@@ -52,7 +52,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
    ```
    登录 cookie 一律存**仓库外**（绝不提交）：B站 SESSDATA → `~/.bili_sessdata`；小红书 web_session → `~/.xhs_web_session`。脚本只读这些路径，从不打印。
 2. 多模态模型可替换：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），换 OpenAI 兼容模型 = 改配置；协议不同的模型需新增适配器脚本。
-3. **Agent 兼容**：SKILL.md 为标准格式（Claude Code / Codex / Cursor / OpenClaw 通用）；scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（向后兼容）。
+3. **Agent 兼容**：已验证集成：Claude Code、Codex Desktop。scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（Claude Code legacy fallback，不作为其他 agent 前置条件）。
 
 ## 开源说明
 
