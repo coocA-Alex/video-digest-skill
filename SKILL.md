@@ -43,7 +43,7 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | 内容类型模板（stock/finance/tech/news/teaching/general/lecture 等）; **模板按内容类型分流**（显式配置优先 → LLM 自动分类 detect_template → general 兜底）; 资讯类（news/finance）**按叙事链分节记录**（事件→起因→影响→观点），教学类（teaching）呈现问题→方法论结构，杜绝口播碎片罗列; 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 6 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
 | 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
