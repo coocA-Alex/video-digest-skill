@@ -47,7 +47,7 @@ metadata:
 | 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
-| 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg） |
+| 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg）; 抽帧超时自动**刷新 URL 重试**（dash URL 带 deadline, 传 sessdata 时最多重试 2 次） |
 | 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
 
@@ -96,6 +96,7 @@ metadata:
 - **总结输出为空/过短**：思考型模型（deepseek-v4-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块；**字幕 >40k 字符自动语义分块**（`bili_summarize` 内置，块级缓存 tmp/long_summary_cache/ 支持断点续跑）
 - **长视频字幕只覆盖开头**：B站 AI 字幕对长视频可能只生成口播部分（如 96min 仅 9min）→ `needs_asr_fallback` 自动判定，走 ASR 兜底；兜底失败降级纯字幕并记录 no_subtitle 重试
 - **ASR 音频下载失败（dash 403/截断）**：dash 流需 UA+Referer+Cookie 完整头（`bili_media.fetch_audio` 已内置）；URL 带 deadline 中途失效 → 重试时刷新 URL；分段缓存陈旧时先清 `tmp/{bvid}_asr/`
+- **抽帧超时（ffmpeg 卡住等数据）**：B站 dash 流 URL 带 deadline，过期后 ffmpeg 挂起 → `video_frames.extract_frames` 已内置超时 180s + 刷新 URL 重试 2 次（需向调用链传入 sessdata）；仍失败则降级纯字幕，不阻塞整批
 - **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他。**风控期间备选**：从视频页面 HTML（`curl --compressed`）提取 cid + 标题/简介，字幕走 player API（通常未风控），视频流走 playurl API（fnval=4048 取 dash）
 - **小红书无 __INITIAL_STATE__**：登录态失效或链接过期 → 重新提供 web_session / 链接
 - **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
