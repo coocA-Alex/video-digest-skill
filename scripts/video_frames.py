@@ -63,29 +63,70 @@ def extract_frames(
     max_frames: int = DEFAULT_MAX_FRAMES,
     width: int = DEFAULT_WIDTH,
     force: bool = False,
+    sessdata: str | None = None,
+    timeout: int = 180,
+    retries: int = 2,
 ) -> Path:
-    """Stream the video and save frames to tmp/{bvid}_frames/, return manifest path."""
+    """Stream the video and save frames to tmp/{bvid}_frames/, return manifest path.
+
+    Bilibili dash stream URLs carry a deadline; a stale URL makes ffmpeg
+    hang reading data. On timeout/failure we refresh the URL via
+    get_stream_info and retry (up to `retries` times). Without sessdata
+    the URL cannot be refreshed, so retries are skipped.
+    """
     out_dir = TMP_DIR / f"{bvid}_frames"
+    manifest_path = out_dir / "manifest.json"
     if out_dir.exists() and any(out_dir.glob("frame_*.jpg")) and not force:
-        print(f"frames already exist: {out_dir} (use --force to re-extract)")
-        return out_dir / "manifest.json"
+        if manifest_path.exists():
+            print(f"frames already exist: {out_dir} (use --force to re-extract)")
+            return manifest_path
+        # 上次抽帧中断: 帧已落盘但 manifest 未写, 只重建 manifest 不重抽
+        frames = sorted(out_dir.glob("frame_*.jpg"))
+        manifest = {
+            "bvid": bvid,
+            "interval": interval,
+            "frames": [
+                {"file": f.name, "time_sec": i * interval, "time_str": _fmt(i * interval)}
+                for i, f in enumerate(frames)
+            ],
+        }
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"rebuilt manifest: {len(frames)} frames -> {out_dir}")
+        return manifest_path
     out_dir.mkdir(parents=True, exist_ok=True)
     headers_arg = (
         "Referer: https://www.bilibili.com\r\n"
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
     )
-    cmd = [
-        FFMPEG, "-y",
-        "-headers", headers_arg,
-        "-i", stream_url,
-        "-vf", f"fps=1/{interval},scale={width}:-2",
-        "-frames:v", str(max_frames),
-        "-q:v", "4",
-        str(out_dir / "frame_%03d.jpg"),
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    if result.returncode != 0:
-        raise FrameExtractError(f"ffmpeg failed: {result.stderr[-500:]}")
+    for attempt in range(retries + 1):
+        if attempt > 0:
+            if not sessdata:
+                break
+            # URL deadline 过期是常见失败 → 刷新拿新 URL 再试
+            stream_url, _, _ = get_stream_info(sessdata, bvid)
+            print(f"    [frames] 抽帧失败, 刷新 URL 重试 ({attempt + 1}/{retries + 1})", file=sys.stderr)
+        cmd = [
+            FFMPEG, "-y",
+            "-headers", headers_arg,
+            "-i", stream_url,
+            "-vf", f"fps=1/{interval},scale={width}:-2",
+            "-frames:v", str(max_frames),
+            "-q:v", "4",
+            str(out_dir / "frame_%03d.jpg"),
+        ]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if attempt < retries and sessdata:
+                continue
+            raise FrameExtractError(
+                f"ffmpeg timed out after {timeout}s ({attempt + 1} attempts, URL refreshed {attempt} times)"
+            )
+        if result.returncode != 0:
+            if attempt < retries and sessdata:
+                continue
+            raise FrameExtractError(f"ffmpeg failed: {result.stderr[-500:]}")
+        break
     frames = sorted(out_dir.glob("frame_*.jpg"))
     manifest = {
         "bvid": bvid,

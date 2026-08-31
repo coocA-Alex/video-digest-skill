@@ -297,7 +297,8 @@ def _collect_vision_summary(
     """
     try:
         stream_url, _, _ = get_stream_info(sessdata, bvid)
-        extract_frames(stream_url, bvid, max_frames=DEFAULT_VISION_FRAMES)
+        # 传 sessdata: 抽帧失败时刷新 URL 重试 (dash URL 带 deadline)
+        extract_frames(stream_url, bvid, max_frames=DEFAULT_VISION_FRAMES, sessdata=sessdata)
         return summarize_frames(bvid, prompt=prompt)
     except (FrameExtractError, VisionError, requests.RequestException) as exc:
         print(f"    [vision] 降级纯字幕: {exc}", file=sys.stderr)
