@@ -1,13 +1,13 @@
 # video-digest-skill — Video Parsing & Notes
 
-> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos, Xiaohongshu (RED) notes/videos, and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, extracting text from images, and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
+> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos, Xiaohongshu (RED) notes/videos, WeChat public-account articles, and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, extracting text from images (with per-image captions, so figures become searchable content), and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
 ## Highlights
 
-- **Triple input**: Bilibili AI subtitles (second-precision), Xiaohongshu notes/videos (auto type-detect), or any local video file
-- **Multimodal pipeline**: speech transcription + frame-level vision verification + image-text extraction
+- **Multi-source input**: Bilibili AI subtitles (second-precision), Xiaohongshu notes/videos (auto type-detect), WeChat articles (text + image captioning), or any local video file
+- **Multimodal pipeline**: speech transcription + frame-level vision verification + image-text extraction & captioning
 - **Fact/opinion split**: structured summaries that keep claims verifiable
 - **Bring your own model**: one config line swaps in any OpenAI-compatible provider
 - **Zero credentials in repo**: keys live in environment variables only
@@ -22,12 +22,15 @@
 | Bilibili subtitle fetch | `scripts/bili_subtitle.py` | AI subtitles, second-precision (requires login) |
 | Speech transcription | `scripts/mimo_asr.py` | wav/mp3 → text (MiMo ASR by default, swappable) |
 | Vision verification | `scripts/mimo_vision.py` | image/frame → visual understanding (MiMo Vision by default, swappable) |
-| Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template |
+| Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template; content-type templates (7: stock/news/teaching/tech/lecture/wx/general), auto long-text chunking |
 | Local video parsing | `scripts/local_video_pipeline.py` | local video file → transcript → notes (any recorded source) |
 | Batch tracking | `scripts/digest_weekly.py` | Bilibili followed-creator incremental archive (creators via `config/creators.example.json`) |
 | Frame extraction | `scripts/video_frames.py` | streaming frame extraction with timestamp manifest (ffmpeg) |
 | Frame vision pipeline | `scripts/video_vision.py` | batch frames → MiMo vision → timestamped visual summary (4 concurrent workers) |
 | XHS note/video parsing | `scripts/xhs_note.py` | Xiaohongshu link → type detect (video/image) → download → optional ASR/frames/image-text (web_session in `~/.xhs_web_session`) |
+| WeChat article parsing | `scripts/wx_article.py` | mp.weixin.qq.com → text (images become [图N] markers) → image download + MiMo captioning → wx-template summary; idempotent cache |
+| Multi-P / long video | `scripts/bili_media.py` | page enumeration (112-P verified) / subtitle-coverage check / ASR fallback for long videos (>20min) |
+| Document conversion | `markitdown` (Microsoft OSS, global python311) | PDF/docx/html → markdown, for arXiv papers and other document-type content |
 
 ## Install
 
@@ -41,7 +44,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
 
 ## Usage
 
-Natural-language triggers: **"parse this video [URL/BV]" / "parse this local video [path]" / "summarize this video" / "make video notes" / "extract subtitles" / "verify frames"**
+Natural-language triggers: **"parse this video [URL/BV]" / "parse this local video [path]" / "parse this WeChat article [URL]" / "summarize this video" / "make video notes" / "extract subtitles" / "verify frames"**
 
 ## Configuration (credential isolation — important)
 

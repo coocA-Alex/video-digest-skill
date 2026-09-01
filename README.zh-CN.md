@@ -1,13 +1,13 @@
 # video-digest-skill — 视频解析与笔记
 
-> **不用重看视频就能记住它。** video-digest 把 B站视频、小红书推文/视频和本地录制转成结构化、可核验的笔记 — 字幕直取或语音转写、视觉模型核验关键画面、图片文字提取、严格区分事实与观点。模型自带：默认 MiMo，改一行配置即可换成任意 OpenAI 兼容模型。
+> **不用重看视频就能记住它。** video-digest 把 B站视频、小红书推文/视频、微信公众号图文和本地录制转成结构化、可核验的笔记 — 字幕直取或语音转写、视觉模型核验关键画面、图片文字提取与图注化（配图成为可检索内容）、严格区分事实与观点。模型自带：默认 MiMo，改一行配置即可换成任意 OpenAI 兼容模型。
 
 [English](README.md) | 简体中文
 
 ## 亮点
 
-- **三源输入**：B站 AI 字幕（精确到秒）、小红书推文/视频（自动类型判断）或任意本地视频文件
-- **多模态管道**：语音转写 + 帧级画面核验 + 图片文字提取
+- **多源输入**：B站 AI 字幕（精确到秒）、小红书推文/视频（自动类型判断）、公众号图文（正文 + 图片图注化）或任意本地视频文件
+- **多模态管道**：语音转写 + 帧级画面核验 + 图片文字提取与图注化
 - **事实/观点分离**：结构化总结，让每条论断可独立核验
 - **模型自带**：一行配置切换任意 OpenAI 兼容模型
 - **零凭证入库**：key 只走环境变量
@@ -22,12 +22,15 @@
 | B站字幕直取 | `scripts/bili_subtitle.py` | AI 字幕，精确到秒（需登录态） |
 | 语音转写 | `scripts/mimo_asr.py` | wav/mp3 → 文本（默认 MiMo ASR，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MiMo Vision，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py` | 事实/观点双轨模板 |
+| 结构化总结 | `scripts/bili_summarize.py` | 事实/观点双轨模板；内容类型模板 7 类（stock/news/teaching/tech/lecture/wx/general），超长文本自动分块 |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | 视频抽帧 | `scripts/video_frames.py` | 流式抽帧 → 时间戳 manifest（ffmpeg） |
 | 帧画面核验管道 | `scripts/video_vision.py` | 帧批量 → MiMo 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
+| 公众号图文解析 | `scripts/wx_article.py` | mp.weixin.qq.com → 正文提取（图片转 [图N] 占位）→ 图片下载 + MiMo 图注化 → wx 模板总结；幂等缓存 |
+| 多P/长视频兼容 | `scripts/bili_media.py` | 多P 枚举（112P 实测）/ 字幕覆盖检测 / 长视频（>20min）ASR 兜底 |
+| 文档转换 | `markitdown`（微软开源，全局 python311） | PDF/docx/html → markdown，用于 arxiv 论文等文档型内容 |
 
 ## 安装
 
@@ -41,7 +44,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
 
 ## 使用
 
-自然语言触发：**"解析这个视频 [URL/BV号]" / "解析这个本地视频 [文件路径]" / "总结这个视频" / "做视频笔记" / "字幕提取" / "画面核验"**
+自然语言触发：**"解析这个视频 [URL/BV号]" / "解析这个本地视频 [文件路径]" / "解析这篇公众号文章 [URL]" / "总结这个视频" / "做视频笔记" / "字幕提取" / "画面核验"**
 
 ## 配置（凭证隔离 — 重要）
 
