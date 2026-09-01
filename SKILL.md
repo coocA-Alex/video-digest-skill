@@ -1,7 +1,7 @@
 ---
 name: video-digest
 version: "0.1.0"
-description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、看小红书推文。
+description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文。
 author: coocA-Alex
 tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr]
 license: MIT
@@ -43,13 +43,15 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 6 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 7 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ wx(公众号图文, 含配图图注节)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
 | 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg）; 抽帧超时自动**刷新 URL 重试**（dash URL 带 deadline, 传 sessdata 时最多重试 2 次） |
 | 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
+| 公众号图文解析 | `scripts/wx_article.py <url>` | mp.weixin.qq.com → 正文提取（图片转 [图N] 占位）→ 图片下载 + MIMO 图注化（配图成为可检索内容）→ wx 模板总结；幂等缓存 tmp/wx_{id}/ |
+| 文档转换 | `markitdown`（微软开源, 全局 python311, LW 项目成熟用法） | PDF/docx/html → markdown，用于 arxiv 论文等文档型内容解析（`markitdown <file>` CLI 或 `from markitdown import MarkItDown`） |
 
 ## 工作流（解析一个视频）
 
@@ -115,6 +117,7 @@ metadata:
 | `mimo_vision.py` | 图片/帧视觉理解 | `<image...> [--prompt]` |
 | `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |
 | `video_vision.py` | 帧批量读帧 → 视觉摘要 | `<bvid> [--force]` |
+| `wx_article.py` | 公众号图文: 正文 + 图片下载 + MIMO 图注 | `<url> [--no-vision] [--force]` |
 
 ## Examples
 
@@ -125,6 +128,10 @@ python scripts/bili_summarize.py tmp/BV1xxx.txt 博主名 notes/out.md stock
 
 # 小红书推文/视频（自动判断类型 + 提取）
 python scripts/xhs_note.py "https://www.xiaohongshu.com/explore/<id>?xsec_token=..." --extract
+
+# 公众号推文（正文 + 图片图注化）
+python scripts/wx_article.py "https://mp.weixin.qq.com/s/xxx"
+python scripts/bili_summarize.py tmp/wx_xxx/article.txt 公众号名 notes/out.md wx
 
 # 本地视频（转写 + 画面 + 笔记）
 python scripts/local_video_pipeline.py lecture.mp4 --owner 讲座
