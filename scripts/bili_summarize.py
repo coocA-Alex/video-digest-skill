@@ -202,6 +202,44 @@ UP主提到的风险点。
 字幕全文：
 {subtitle}
 {vision_section}""",
+    "wx": """你是一名公众号图文内容分析助手。输入是一篇微信公众号图文推文（正文中含 [图N] 占位符标记图片位置，配图图注在文末单独给出）。
+核心要求：笔记不是流水账——必须提炼重点、呈现逻辑、并给出加工后的思考，而不是均匀罗列所有内容。
+
+以下是公众号《{owner}》的文章《{title}》全文。请按以下结构输出 markdown 总结:
+{desc_section}
+## 一句话主旨
+一句话概括：这篇文章在讲什么、解决什么问题、给谁看。
+
+## 核心内容与逻辑链
+按逻辑顺序呈现主要内容：主线是什么、分哪几部分、各部分论点/证据/发现如何推进。
+正文中 [图N] 位置标记请转为 "（图N）" 保留在对应内容处，并在"配图图注"节给出对应图注。
+不要平铺罗列所有细节——只保留支撑主线的关键内容。
+
+## 关键事实与数字
+只列出有信息量的硬信息（精确数字、定义、人物、时间、可验证的事实）。琐碎提及不列。文中未提到的写"未提及"。
+
+## 配图图注
+将文末的配图图注逐条整理呈现，并说明每张图在文中的作用（图表/示意图/截图）。无配图写"无配图"。
+
+## 值得记住的观点与金句
+精选 3-6 条最有洞察力/最有启发性的观点或原话（附简短引用，不超过30字）。
+
+## 思考与行动
+1. 关联：这个内容与哪些已有知识/场景相关
+2. 反思：哪些地方值得认同、哪些存疑
+3. 行动：每条核心启示接一句"所以我要____"（可落地的一句话）
+
+## 数据可信度备注
+文中存疑、可能截断、或需人工核对的点。
+
+规则：
+1. 只基于正文文本（及配图图注，若提供），绝不补充输入外的事实或知识
+2. 数字必须原文保留，不得四舍五入改写
+3. 输出纯 markdown，不要额外解释
+
+正文全文：
+{subtitle}
+{vision_section}""",
     "lecture": """你是一名讲座内容分析助手。输入是一次学术/技术讲座的完整文本，包含主讲人的连贯叙述报告，以及（若有）专家学者的问答环节。请严格区分"事实信息"与"讲述者观点"，按以下结构输出 markdown:
 
 ## 讲座概要
@@ -474,7 +512,13 @@ def build_prompt(
 ) -> list[dict[str, str]]:
     """Build the chat messages for the summarization request."""
     tpl = TEMPLATES.get(template, TEMPLATES["stock"])
-    vision_section = VISION_SECTION.format(vision_summary=vision_summary) if vision_summary else ""
+    if vision_summary:
+        if template == "wx":
+            vision_section = "\n\n配图图注（图文正文的配图，用于补充正文未表达的信息）：\n{vision_summary}".format(vision_summary=vision_summary)
+        else:
+            vision_section = VISION_SECTION.format(vision_summary=vision_summary)
+    else:
+        vision_section = ""
     desc_section = f"\n\n视频简介（参考，用于校正字幕音译模糊处）：\n{desc}" if desc else ""
     user_content = tpl.format(
         owner=owner, title=title, subtitle=subtitle_text, vision_section=vision_section,
