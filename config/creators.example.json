@@ -34,6 +34,17 @@
       "template": "news",
       "vision": false,
       "backfill": false
+    },
+    {
+      "name": "示例: 合集 + 合集外投稿都收",
+      "mid": 555555557,
+      "season_id": 777777779,
+      "season_backfill": "since:2026-08-01",
+      "season_include_others": true,
+      "note": "season_include_others: 合集之外也收该 UP 主的投稿 —— 科普/教学类往往不在合集内, 但构成知识体系, 值得收。走 space API 取最近 30 条并剔除已在合集内的; **该通道失败只降级不抛出** (记进报告行), 保证合集通道的成果不被拖垮。不设此键则行为完全不变 (只跟合集)。注意: 三层准入只作用于合集内, 不作用于合集外投稿",
+      "template": "stock",
+      "vision": true,
+      "backfill": false
     }
   ]
 }

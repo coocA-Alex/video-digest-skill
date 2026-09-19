@@ -26,8 +26,8 @@
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（任意来源录制）；默认 2 分钟分段 + ASR 静默丢字防护 |
 | 分段讲座整合 | `scripts/local_video_merge.py` | 同一场讲座被切成多段的录屏按录制时间序拼接 → 单篇完整总览（默认只合并最新一次录制会话） |
 | 纯视觉内容解读 | `scripts/visual_palette.py` | 「内容就是画面」的视频/图集（渐变色卡、调色板演示）：抽帧 → 定格检测 → 关键帧调色板 k-means → HSL 设计规律；`--labels` 另读画面色号并逐条校验 |
-| 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
-| **合集级追踪** | `scripts/digest_weekly.py` + `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿 —— 适合「课程系列专追」（UP 主日更混杂内容时，按 UP 主全量追会把无关内容灌进笔记库）。**三层准入**：时间（`season_backfill`: `all`/`none`/`since:YYYY-MM-DD`，资讯类必须给 since，否则旧闻倒灌）、内容（`season_filter` 标题子串/正则）、语义（`season_llm_filter` LLM 判是否属于合集主题 —— 合集边界不等于内容边界） |
+| 批量追踪 | `scripts/digest_daily.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
+| **合集级追踪** | `scripts/digest_daily.py` + `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿 —— 适合「课程系列专追」（UP 主日更混杂内容时，按 UP 主全量追会把无关内容灌进笔记库）。**三层准入**：时间（`season_backfill`: `all`/`none`/`since:YYYY-MM-DD`，资讯类必须给 since，否则旧闻倒灌）、内容（`season_filter` 标题子串/正则）、语义（`season_llm_filter` LLM 判是否属于合集主题 —— 合集边界不等于内容边界） |
 | 视频抽帧 | `scripts/video_frames.py` | 流式抽帧 → 时间戳 manifest（ffmpeg） |
 | 帧画面核验管道 | `scripts/video_vision.py` | 帧批量 → MiMo 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |

@@ -49,8 +49,8 @@ metadata:
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制）；**默认 2 分钟一段**并带静默丢字防护（见 Limitations） |
 | 分段讲座整合 | `scripts/local_video_merge.py` | 把同一场讲座被切成多段的录屏（`tmp/lecture/*`）按录制时间序拼接 → 单篇完整总览；**默认只合并最新一次录制会话**，`--match` 显式选、`--all` 恢复全量；长输入自动分块 |
 | 纯视觉内容解读 | `scripts/visual_palette.py` | 面向「内容就是画面」的视频/图集（渐变色卡、调色板演示、配色对比）：ffmpeg 抽帧 → 帧差定格检测 → 关键帧 k-means 调色板 → HSL 设计规律 → markdown/JSON；`--labels` 另用视觉模型读画面色号并逐条校验。此类视频音频常为纯音乐，ASR 会幻觉出歌词，必须读像素 |
-| 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
-| **合集级追踪** | `scripts/digest_weekly.py` + creators 的 `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿（`fetch_season_videos` 走 polymer `seasons_archives_list`，实测免登录免 WBI 签名）。适用「课程系列专追」：当 UP 主日更多条混杂内容（如教程 + 资讯 + 专栏）时，按 UP 主全量追更会把无关内容灌进笔记库。候选集 = 合集全集 − state 已处理，每轮按 `--max` 限流，并自动跳过 backfill 分页（合集列表本身即全集）。**三层准入（正交可组合）**：① `season_backfill` 时间维 —— `all`(默认，教程/系统课需全补) / `none`(只收启用后新集) / `since:YYYY-MM-DD`(**资讯类必配**，否则旧闻倒灌)；② `season_filter` 内容维 —— 标题子串或 `regex:...`；③ `season_llm_filter` 语义维 —— LLM 二次判断该集是否属于合集主题（治"博主把无关内容塞进同一合集"），判定按 bvid 缓存 |
+| 批量追踪 | `scripts/digest_daily.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
+| **合集级追踪** | `scripts/digest_daily.py` + creators 的 `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿（`fetch_season_videos` 走 polymer `seasons_archives_list`，实测免登录免 WBI 签名）。适用「课程系列专追」：当 UP 主日更多条混杂内容（如教程 + 资讯 + 专栏）时，按 UP 主全量追更会把无关内容灌进笔记库。候选集 = 合集全集 − state 已处理，每轮按 `--max` 限流，并自动跳过 backfill 分页（合集列表本身即全集）。**三层准入（正交可组合）**：① `season_backfill` 时间维 —— `all`(默认，教程/系统课需全补) / `none`(只收启用后新集) / `since:YYYY-MM-DD`(**资讯类必配**，否则旧闻倒灌)；② `season_filter` 内容维 —— 标题子串或 `regex:...`；③ `season_llm_filter` 语义维 —— LLM 二次判断该集是否属于合集主题（治"博主把无关内容塞进同一合集"），判定按 bvid 缓存；④ `season_include_others: true` 合集**之外**也收该 UP 主的投稿（科普/教学类构成知识体系；走 space API 取最近 30 条并剔除合集内已有的，**该通道失败只降级不抛出**，保证合集通道不被拖垮）。合集端点改 `sort_reverse=true` 最新在前 + 按时间下限早停（日常 1 页代替 10 页，`all` 模式不早停），并对 `-352`/HTTP 412 做 30s/60s/90s 退避重试；候选集按发布时间**降序**取 `--max`（积压时先出最新，倒着往回追） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg）; 抽帧超时自动**刷新 URL 重试**（dash URL 带 deadline, 传 sessdata 时最多重试 2 次） |
 | 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
@@ -121,7 +121,7 @@ metadata:
 | `local_video_pipeline.py` | 本地视频 → 转写 → 笔记 | `<video> [--no-vision] [--owner] [--template] [--language]` |
 | `local_video_merge.py` | 分段讲座录屏 → 单篇总览 | `[--owner] [--title] [--match 子串] [--all] [--force]` |
 | `visual_palette.py` | 纯视觉内容（色卡/调色板）解读 | `<video\|image> [--name] [--fps N] [--labels] [--out md]` |
-| `digest_weekly.py` | B站关注列表/合集 批量追踪 | `[--max N] [--backfill N] [--cutoff DATE] [--no-vision]` |
+| `digest_daily.py` | B站关注列表/合集 批量追踪 | `[--max N] [--backfill N] [--cutoff DATE] [--no-vision]` |
 | `mimo_asr.py` | 音频转写 | `<audio> [lang]` |
 | `mimo_vision.py` | 图片/帧视觉理解 | `<image...> [--prompt]` |
 | `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |
@@ -154,7 +154,7 @@ python scripts/visual_palette.py palette.mp4 --name mig --labels
 # 合集系列专追：在 config/creators.json 里给该博主配 season_id 即可
 # {"name": "某教程号", "mid": <UP主mid>, "season_id": <合集id>,
 #  "template": "tech", "vision": false, "backfill": false}
-python scripts/digest_weekly.py --max 10
+python scripts/digest_daily.py --max 10
 
 # 多P 视频定向处理任意 P（如 112P 课程的第 5 讲）
 python -c "import sys; sys.path.insert(0,'scripts'); from bili_media import enum_pages; print([(p['cid'],p['part']) for p in enum_pages('BV1xxx')])"

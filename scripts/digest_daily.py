@@ -34,6 +34,10 @@ BACKFILL_MAX_PAGES_PER_RUN = 3
 BACKFILL_PAGE_SLEEP_SECONDS = 5
 SEASON_PAGE_SIZE = 30
 SEASON_MAX_PAGES = 10
+# season 端点也会吃 B站风控 (code -352 / HTTP 412), 且按 IP 计; 退避重试
+SEASON_RETRY_SLEEPS = (30, 60, 90)
+# 合集之外还收该 UP 主投稿时, 单请求回看多少条 (科普类稀疏, 30 条约覆盖一个月)
+SEASON_EXTRA_LOOKBACK = 30
 # 合集准入三层: 补录策略(时间) → 标题筛(内容) → LLM 二次判断(语义)
 SEASON_BACKFILL_MODES = ("all", "none")
 SEASON_ADMIT_MAX_TOKENS = 8000
@@ -249,55 +253,82 @@ def fetch_paginated_videos(
     return videos, next_pn, False
 
 
-def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> tuple[list[dict[str, object]], str]:
-    """Fetch every episode of one 合集 (season), in upload order.
+def _season_page(
+    session: requests.Session, mid: int, season_id: int, page: int, headers: dict[str, str]
+) -> dict[str, object]:
+    """Fetch one season page, backing off on B站 risk control (-352 / HTTP 412).
 
-    Returns (episodes, season_title) — the title comes from the same response's
-    meta block and is used as the theme reference for LLM admission checks.
-    The polymer endpoint needs no WBI signature; SESSDATA is sent anyway so
-    the request carries the same login state as the rest of the pipeline.
+    The season endpoint throttles per IP; a burst of pages can trip it for
+    ~10 minutes. Non-risk-control errors are not retried — they won't heal.
+    """
+    url = "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list"
+    params = {
+        "mid": mid,
+        "season_id": season_id,
+        "sort_reverse": "true",  # 最新在前, 配合 floor 早停 (旧行为是最老在前)
+        "page_num": page,
+        "page_size": SEASON_PAGE_SIZE,
+    }
+    reason = "unknown"
+    for wait in (0, *SEASON_RETRY_SLEEPS):
+        if wait:
+            time.sleep(wait)
+        response = session.get(url, params=params, headers=headers, timeout=30)
+        if response.status_code == 412:
+            reason = "HTTP 412"
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            reason = f"HTTP {response.status_code} (non-JSON)"
+            continue
+        if data.get("code") == 0:
+            return data
+        reason = f"{data['code']}: {data.get('message')}"
+        if data.get("code") != -352:
+            break
+    raise DigestError(f"season API {reason} (page {page})")
+
+
+def fetch_season_videos(
+    sessdata: str, mid: int, season_id: int, floor_ts: int = 0
+) -> tuple[list[dict[str, object]], str, int]:
+    """Fetch one 合集's episodes, paginating newest-first and stopping early.
+
+    Returns (episodes, season_title, total). `episodes` is sorted by pubdate
+    **ascending** so callers keep the original ordering contract; `total` is
+    the collection's real size (meta.total) even when we stopped early.
+
+    floor_ts > 0 stops paging once a page's oldest episode predates it — a
+    daily-updating news collection then costs 1 request instead of 10.
+    floor_ts == 0 (教程类 "all" 模式) enumerates the whole collection.
     """
     session = requests.Session()
     session.cookies.set("SESSDATA", sessdata, domain=".bilibili.com")
     headers = dict(HEADERS, Referer=f"https://space.bilibili.com/{mid}/lists/{season_id}?type=season")
     videos: list[dict[str, object]] = []
     season_title = ""
+    total = 0
     for page in range(1, SEASON_MAX_PAGES + 1):
-        response = session.get(
-            "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
-            params={
-                "mid": mid,
-                "season_id": season_id,
-                "sort_reverse": "false",
-                "page_num": page,
-                "page_size": SEASON_PAGE_SIZE,
-            },
-            headers=headers,
-            timeout=30,
-        )
-        response.raise_for_status()
-        data = response.json()
-        if data["code"] != 0:
-            raise DigestError(f"season API {data['code']}: {data['message']}")
+        data = _season_page(session, mid, season_id, page, headers)
         archives = (data.get("data") or {}).get("archives") or []
         if page == 1:
-            season_title = str(((data.get("data") or {}).get("meta") or {}).get("title") or "")
+            meta = (data.get("data") or {}).get("meta") or {}
+            season_title = str(meta.get("title") or "")
+            total = int(meta.get("total") or 0)
         if not archives:
             break
         videos.extend(
             {"bvid": item["bvid"], "title": item["title"], "pubdate": int(item["pubdate"])}
             for item in archives
         )
+        if floor_ts and min(int(item["pubdate"]) for item in archives) < floor_ts:
+            break  # 已翻过时间下限, 更老的页不必再取
         if len(archives) < SEASON_PAGE_SIZE:
             break
         time.sleep(BACKFILL_PAGE_SLEEP_SECONDS)
-    if len(videos) >= SEASON_MAX_PAGES * SEASON_PAGE_SIZE:
-        # 撞到上限说明合集可能还有更多集, 别静默截断
-        print(
-            f"[season] 已达分页上限 {SEASON_MAX_PAGES}×{SEASON_PAGE_SIZE}, 合集可能被截断",
-            file=sys.stderr,
-        )
-    return videos, season_title
+    videos.sort(key=lambda v: int(v["pubdate"]))
+    return videos, season_title, total or len(videos)
 
 
 def season_pubdate_floor(spec: object, season_id: int, state: dict[str, object]) -> int:
@@ -734,12 +765,27 @@ def _run_one_creator(
         # season_id 填 0/负数会被当成"没配", 静默退化成跟整个 UP 主 feed → 直接报错更安全
         if int(season_id) <= 0:
             raise DigestError(f"season_id 非法: {season_id} (需为正整数合集 id)")
-        # 合集模式: 只跟这一个合集的新集, 忽略该 UP 主的其余投稿
-        videos, season_title = fetch_season_videos(sessdata, mid, int(season_id))
-        pending = [v for v in videos if _should_process(processed, str(v["bvid"]))]
-        # 三层准入: 补录策略(时间) → 标题筛(内容) → LLM 二次判断(语义)
+        # 合集模式: 跟这一个合集的新集; 可选并收该 UP 主合集外的投稿
         backfill_spec = creator.get("season_backfill")
+        # 先算时间下限 — 取数要靠它早停 (资讯类 1 页代替 10 页)
         floor = season_pubdate_floor(backfill_spec, int(season_id), state)
+        include_others = bool(creator.get("season_include_others"))
+        # 合集外投稿先取: 它的时间跨度决定合集要翻多深, 否则"是否在合集内"判不准
+        # (早停只取到近期几页 → 更老的合集集会被误判成"合集外")
+        extra_raw: list[dict[str, object]] = []
+        if include_others:
+            try:
+                extra_raw = fetch_latest_videos(sessdata, mid, SEASON_EXTRA_LOOKBACK)
+            except (DigestError, requests.RequestException) as exc:
+                report_lines.append(f"  [合集外投稿] 取数失败, 本轮跳过: {exc}")
+        fetch_floor = floor
+        if extra_raw and floor:
+            fetch_floor = min(floor, min(int(v["pubdate"]) for v in extra_raw))
+        videos, season_title, season_total = fetch_season_videos(
+            sessdata, mid, int(season_id), floor_ts=fetch_floor
+        )
+        pending = [v for v in videos if _should_process(processed, str(v["bvid"]))]
+        # 三层准入只作用于合集内: 它们治的是"合集边界 != 内容边界"
         if floor:
             pending = [v for v in pending if int(v["pubdate"]) >= floor]
         title_spec = creator.get("season_filter")
@@ -748,7 +794,7 @@ def _run_one_creator(
         if creator.get("season_llm_filter"):
             verdicts = state.setdefault("season_verdicts", {})
             assert isinstance(verdicts, dict)
-            refs = [str(v["title"]) for v in videos[-8:]]
+            refs = [str(v["title"]) for v in videos[-8:]]  # videos 升序 → 末 8 条最新
             kept: list[dict[str, object]] = []
             for video in pending:
                 ok, reason = season_llm_admit(api_key, season_title, refs, video, verdicts)
@@ -759,9 +805,25 @@ def _run_one_creator(
                         f"  [LLM 过滤] {video['bvid']} {str(video['title'])[:32]} — {reason}"
                     )
             pending = kept
+        # 合集之外的投稿 (科普/教学类也构成知识体系, 2026-09-19 用户裁定要收)。
+        # videos 已覆盖到 extra_raw 的时间跨度, 故"是否在合集内"判定是可靠的。
+        extra: list[dict[str, object]] = []
+        if include_others:
+            in_season = {str(v["bvid"]) for v in videos}
+            for video in extra_raw:
+                if str(video["bvid"]) in in_season:
+                    continue
+                if _should_process(processed, str(video["bvid"])):
+                    extra.append(video)
+        # 最新优先, 积压则倒着往回追 (2026-09-19 用户裁定)
+        pending = sorted(pending + extra, key=lambda v: int(v["pubdate"]), reverse=True)
         # 首轮补齐历史集时按 max_videos 限流, 不一次跑几十集
         new_videos = pending[:max_videos]
-        source = f"合集 {len(videos)} 集"
+        source = f"合集 {season_total} 集"
+        if len(videos) < season_total:
+            source += f"(本轮取 {len(videos)})"
+        if include_others:
+            source += f" + 合集外投稿 {len(extra)} 条"
         if backfill_spec or title_spec or creator.get("season_llm_filter"):
             marks = [f"补录={backfill_spec or 'all'}"]
             if title_spec:
@@ -770,7 +832,7 @@ def _run_one_creator(
                 marks.append("LLM判")
             source += f" ({' / '.join(marks)})"
         if len(pending) > len(new_videos):
-            source += f", 待处理 {len(pending)} 集(本轮上限 {max_videos})"
+            source += f", 待处理 {len(pending)} 条(本轮上限 {max_videos})"
     else:
         videos = fetch_latest_videos(sessdata, mid, max_videos)
         source = f"最近 {len(videos)} 条"
@@ -835,4 +897,7 @@ if __name__ == "__main__":
         help="skip frame extraction and MIMO vision (subtitle-only summary)",
     )
     args = parser.parse_args()
+    # ps=0 会被 B站判 400, 并触发一轮失败告警弹窗 (2026-09-19 实测) → 挡在入口
+    if args.max < 1:
+        parser.error("--max 必须 >= 1 (space API 不接受 ps=0; 想干跑请用 --max 1 --no-vision)")
     run_digest(args.max, args.backfill, args.cutoff, use_vision=not args.no_vision)
