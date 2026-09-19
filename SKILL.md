@@ -1,12 +1,12 @@
 ---
 name: video-digest
-version: "0.1.0"
-description: 视频与图文内容解析与笔记。兼容 B站视频、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文。
+version: "0.2.0"
+description: 视频与图文内容解析与笔记。兼容 B站视频（单视频/UP主追更/合集系列追踪）、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、纯视觉内容解读、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、追更某个 UP 主或某个合集系列、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文、追更、跟新视频、追踪课程系列、合集追更。
 author: coocA-Alex
-tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr]
+tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr, tracking, season]
 license: MIT
 metadata:
-  version: 0.1.0
+  version: 0.2.0
 ---
 
 # 视频解析与情报追踪
@@ -35,6 +35,7 @@ metadata:
 |------|------|------|
 | `ffmpeg` | 视频抽帧/音频提取 | 画面核验场景 |
 | `requests` | API 调用 | 是 |
+| `numpy` / `Pillow` | 调色板聚类与图像读取 | 仅纯视觉解读 (`visual_palette.py`) |
 
 ## 能力
 
@@ -43,10 +44,13 @@ metadata:
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
-| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 7 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ wx(公众号图文, 含配图图注节)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义） |
+| 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 7 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ wx(公众号图文, 含配图图注节)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义）; **口径/派生/取信标注**（财经类 stock/news 模板）: 成交额/涨跌家数/市值等**口径敏感数字**标 `（口径：沪深/含北交所/全市场/口径未明）`; 由原始数字计算得出的**派生数字**（分位/均值/同比/环比/区间位置）标 `[派生·口径: <窗口或算法>]`; 画面与口播冲突处给 `建议取信：口播/画面/待核`（同一冲突在多帧复现时只标一次） |
 | 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
-| 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制） |
+| 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制）；**默认 2 分钟一段**并带静默丢字防护（见 Limitations） |
+| 分段讲座整合 | `scripts/local_video_merge.py` | 把同一场讲座被切成多段的录屏（`tmp/lecture/*`）按录制时间序拼接 → 单篇完整总览；**默认只合并最新一次录制会话**，`--match` 显式选、`--all` 恢复全量；长输入自动分块 |
+| 纯视觉内容解读 | `scripts/visual_palette.py` | 面向「内容就是画面」的视频/图集（渐变色卡、调色板演示、配色对比）：ffmpeg 抽帧 → 帧差定格检测 → 关键帧 k-means 调色板 → HSL 设计规律 → markdown/JSON；`--labels` 另用视觉模型读画面色号并逐条校验。此类视频音频常为纯音乐，ASR 会幻觉出歌词，必须读像素 |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
+| **合集级追踪** | `scripts/digest_weekly.py` + creators 的 `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿（`fetch_season_videos` 走 polymer `seasons_archives_list`，实测免登录免 WBI 签名）。适用「课程系列专追」：当 UP 主日更多条混杂内容（如教程 + 资讯 + 专栏）时，按 UP 主全量追更会把无关内容灌进笔记库。候选集 = 合集全集 − state 已处理，每轮按 `--max` 限流，并自动跳过 backfill 分页（合集列表本身即全集） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg）; 抽帧超时自动**刷新 URL 重试**（dash URL 带 deadline, 传 sessdata 时最多重试 2 次） |
 | 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
@@ -55,7 +59,7 @@ metadata:
 
 ## 工作流（解析一个视频）
 
-1. **字幕**：优先 B站 AI 字幕直取；无字幕/非 B站 → 音频转写（MIMO ASR 或配置的其他模型）；**长视频（>20min）字幕覆盖 <70%**（B站 AI 字幕常只覆盖口播部分）→ 自动 ASR 兜底（`bili_media.fetch_audio` dash 下载 + 分段转写）
+1. **字幕**：优先 B站 AI 字幕直取；无字幕/非 B站 → 音频转写（MIMO ASR 或配置的其他模型）；**长视频（>20min）字幕覆盖 <70%**（B站 AI 字幕常只覆盖口播部分）→ 自动 ASR 兜底（`bili_media.fetch_audio` dash 下载 + 分段转写）；**整条视频完全没有 AI 字幕轨**（`no subtitle tracks`）时，批量管线记 `no_subtitle` 状态并 3 天后自动重试（B站 AI 字幕有滞后），单篇应急可直接走 ASR 兜底：`fetch_audio(bvid, cid)` → `local_video_pipeline.extract_segments`（2min/段）→ `transcribe_segments` → `summarize_subtitle` → 归档
 2. **画面核验（可选）**：需要看图表/PPT/实验画面时，抽帧 → 视觉模型理解
 3. **小红书推文（可选）**：`scripts/xhs_note.py <url> --extract` — 自动判断视频/图文；视频走 ASR+帧，图文走图片文字提取（正文常在图片里）
 4. **总结**：LLM 结构化总结（可传视频简介 desc 校正字幕音译；general 模板 = 逻辑链+精选+思考与行动层）
@@ -89,7 +93,7 @@ metadata:
 ## Limitations
 
 - B站 AI 字幕多数需登录态（cookies）；接口可能变动
-- MIMO ASR 限 wav/mp3、base64 ≤10MB（长音频需分段）
+- MIMO ASR 限 wav/mp3、base64 ≤10MB（长音频需分段）。**⚠️ 静默丢字（2026-09-16 实测）**：5 分钟段有 2/8 被整段丢成 `"嗯。"` 且**不报错**，重跑结果一致 → 默认段长改为 **2 分钟**，并在转写后按「字数/分钟」检测异常段（<60 字/分；健康讲课时 230–290），命中则自动拆 60s 重转再拼接。长音频务必走 `local_video_pipeline` 的分段+防护路径，不要自己裸切长段
 - 多 P 视频：默认主 P（时长最长）总结 + 其余 P 有字幕则拉取并补"P 对照说明"节（digest 批量流程）；手动流程可用 `bili_media.enum_pages` 定向处理任意 P
 - 小红书仅按需解析单条推文（用户指定链接）；未登录无法取视频流/互动数据
 
@@ -102,6 +106,8 @@ metadata:
 - **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他。**风控期间备选**：从视频页面 HTML（`curl --compressed`）提取 cid + 标题/简介，字幕走 player API（通常未风控），视频流走 playurl API（fnval=4048 取 dash）
 - **小红书无 __INITIAL_STATE__**：登录态失效或链接过期 → 重新提供 web_session / 链接
 - **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
+- **合集追更没生效 / 追进来一堆无关视频**：`season_id` 必须是**正整数** —— 填 `0` 或负数会直接抛错并走失败隔离（不会静默退化成"追整个 UP 主"）。合集 ID 取法：视频详情 API 的 `ugc_season.id`（`https://api.bilibili.com/x/web-interface/view?bvid=<BV>`）或合集页 URL 里的 `season_id`。报告行形如 `合集 42 集, 待处理 3 集(本轮上限 10), 新 3 条`；出现「待处理」说明本轮被 `--max` 限流，剩余下轮继续
+- **讲座分段合并选错了素材**：`local_video_merge.py` 默认只合并**最新一次录制会话**（`tmp/lecture/` 会累积历届），要指定用 `--match <录制名子串>`，要全量用 `--all`
 
 ## Available Scripts
 
@@ -111,8 +117,10 @@ metadata:
 | `bili_media.py` | 多P 枚举 / 字幕覆盖检测 / dash 音频下载 | 库函数: `enum_pages` `check_coverage` `needs_asr_fallback` `fetch_audio` |
 | `bili_summarize.py` | 字幕 → 结构化总结（超长自动分块） | `<subtitle.txt> <owner> [out.md] [style]` |
 | `xhs_note.py` | 小红书推文/视频解析（自动类型判断） | `<explore_url> [--name noteX] [--extract]` |
-| `local_video_pipeline.py` | 本地视频 → 转写 → 笔记 | `<video> [--no-vision] [--owner] [--template]` |
-| `digest_weekly.py` | B站关注列表批量追踪 | `[--backfill N] [--cutoff DATE]` |
+| `local_video_pipeline.py` | 本地视频 → 转写 → 笔记 | `<video> [--no-vision] [--owner] [--template] [--language]` |
+| `local_video_merge.py` | 分段讲座录屏 → 单篇总览 | `[--owner] [--title] [--match 子串] [--all] [--force]` |
+| `visual_palette.py` | 纯视觉内容（色卡/调色板）解读 | `<video\|image> [--name] [--fps N] [--labels] [--out md]` |
+| `digest_weekly.py` | B站关注列表/合集 批量追踪 | `[--max N] [--backfill N] [--cutoff DATE] [--no-vision]` |
 | `mimo_asr.py` | 音频转写 | `<audio> [lang]` |
 | `mimo_vision.py` | 图片/帧视觉理解 | `<image...> [--prompt]` |
 | `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |
@@ -135,6 +143,17 @@ python scripts/bili_summarize.py tmp/wx_xxx/article.txt 公众号名 notes/out.m
 
 # 本地视频（转写 + 画面 + 笔记）
 python scripts/local_video_pipeline.py lecture.mp4 --owner 讲座
+
+# 分段讲座录屏 → 单篇总览（默认只取最新一次录制会话）
+python scripts/local_video_merge.py --owner 讲座 --match 2026.09.16
+
+# 纯视觉内容（色卡 / 调色板演示视频，无有效口播）
+python scripts/visual_palette.py palette.mp4 --name mig --labels
+
+# 合集系列专追：在 config/creators.json 里给该博主配 season_id 即可
+# {"name": "某教程号", "mid": 42484832, "season_id": 8995110,
+#  "template": "tech", "vision": false, "backfill": false}
+python scripts/digest_weekly.py --max 10
 
 # 多P 视频定向处理任意 P（如 112P 课程的第 5 讲）
 python -c "import sys; sys.path.insert(0,'scripts'); from bili_media import enum_pages; print([(p['cid'],p['part']) for p in enum_pages('BV1xxx')])"

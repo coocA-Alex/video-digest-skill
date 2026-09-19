@@ -32,6 +32,8 @@ DEFAULT_BACKFILL_PER_CREATOR = 5
 BACKFILL_PAGE_SIZE = 30
 BACKFILL_MAX_PAGES_PER_RUN = 3
 BACKFILL_PAGE_SLEEP_SECONDS = 5
+SEASON_PAGE_SIZE = 30
+SEASON_MAX_PAGES = 10
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bili_subtitle import (  # noqa: E402
@@ -229,6 +231,52 @@ def fetch_paginated_videos(
             return videos, page + 1, True
         time.sleep(BACKFILL_PAGE_SLEEP_SECONDS)
     return videos, next_pn, False
+
+
+def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> list[dict[str, object]]:
+    """Fetch every episode of one 合集 (season), in upload order.
+
+    The polymer endpoint needs no WBI signature; SESSDATA is sent anyway so
+    the request carries the same login state as the rest of the pipeline.
+    """
+    session = requests.Session()
+    session.cookies.set("SESSDATA", sessdata, domain=".bilibili.com")
+    headers = dict(HEADERS, Referer=f"https://space.bilibili.com/{mid}/lists/{season_id}?type=season")
+    videos: list[dict[str, object]] = []
+    for page in range(1, SEASON_MAX_PAGES + 1):
+        response = session.get(
+            "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
+            params={
+                "mid": mid,
+                "season_id": season_id,
+                "sort_reverse": "false",
+                "page_num": page,
+                "page_size": SEASON_PAGE_SIZE,
+            },
+            headers=headers,
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data["code"] != 0:
+            raise DigestError(f"season API {data['code']}: {data['message']}")
+        archives = (data.get("data") or {}).get("archives") or []
+        if not archives:
+            break
+        videos.extend(
+            {"bvid": item["bvid"], "title": item["title"], "pubdate": int(item["pubdate"])}
+            for item in archives
+        )
+        if len(archives) < SEASON_PAGE_SIZE:
+            break
+        time.sleep(BACKFILL_PAGE_SLEEP_SECONDS)
+    if len(videos) >= SEASON_MAX_PAGES * SEASON_PAGE_SIZE:
+        # 撞到上限说明合集可能还有更多集, 别静默截断
+        print(
+            f"[season] 已达分页上限 {SEASON_MAX_PAGES}×{SEASON_PAGE_SIZE}, 合集可能被截断",
+            file=sys.stderr,
+        )
+    return videos
 
 
 def fetch_video_detail(bvid: str) -> dict[str, object]:
@@ -592,10 +640,25 @@ def _run_one_creator(
     mid = int(creator["mid"])
     template = creator.get("template")  # None → 按内容类型自动检测 (2026-08-29)
     creator_vision = bool(creator.get("vision", False)) and use_vision
-    videos = fetch_latest_videos(sessdata, mid, max_videos)
-    new_videos = [v for v in videos if _should_process(processed, str(v["bvid"]))]
+    season_id = creator.get("season_id")
+    if season_id is not None:
+        # season_id 填 0/负数会被当成"没配", 静默退化成跟整个 UP 主 feed → 直接报错更安全
+        if int(season_id) <= 0:
+            raise DigestError(f"season_id 非法: {season_id} (需为正整数合集 id)")
+        # 合集模式: 只跟这一个合集的新集, 忽略该 UP 主的其余投稿
+        videos = fetch_season_videos(sessdata, mid, int(season_id))
+        pending = [v for v in videos if _should_process(processed, str(v["bvid"]))]
+        # 首轮补齐历史集时按 max_videos 限流, 不一次跑几十集
+        new_videos = pending[:max_videos]
+        source = f"合集 {len(videos)} 集"
+        if len(pending) > len(new_videos):
+            source += f", 待处理 {len(pending)} 集(本轮上限 {max_videos})"
+    else:
+        videos = fetch_latest_videos(sessdata, mid, max_videos)
+        source = f"最近 {len(videos)} 条"
+        new_videos = [v for v in videos if _should_process(processed, str(v["bvid"]))]
     report_lines.append(
-        f"[{name}] 最近 {len(videos)} 条, 新 {len(new_videos)} 条, "
+        f"[{name}] {source}, 新 {len(new_videos)} 条, "
         f"模板={template or 'auto'}, 视觉={'开' if creator_vision else '关'}"
     )
     for video in new_videos:
@@ -603,7 +666,7 @@ def _run_one_creator(
             sessdata, api_key, str(video["bvid"]), processed, report_lines, "",
             creator_vision, template,
         )
-    if backfill_per_creator <= 0 or not bool(creator.get("backfill", True)):
+    if backfill_per_creator <= 0 or season_id or not bool(creator.get("backfill", True)):
         return
     bf = backfill_state.setdefault(str(mid), {"next_pn": 1, "done": False})
     if bf["done"]:

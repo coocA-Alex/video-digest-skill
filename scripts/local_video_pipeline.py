@@ -9,7 +9,7 @@ Re-runs are incremental: successful segment transcripts are cached, so a
 failed run can simply be re-invoked to retry only the missing segments.
 
 Usage:
-    python local_video_pipeline.py <video> [--no-vision] [--segment-min 5]
+    python local_video_pipeline.py <video> [--no-vision] [--segment-min 2]
         [--template general] [--owner 讲座] [--language auto] [--force]
 """
 from __future__ import annotations
@@ -32,7 +32,8 @@ import video_vision  # noqa: E402
 
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
-DEFAULT_SEGMENT_MIN = 5
+# 实测 2026-09-16 加氢讲座: 5min 段 2/8 被 MIMO ASR 静默丢字, 2min 段 0/27 失败
+DEFAULT_SEGMENT_MIN = 2
 DEFAULT_TEMPLATE = "general"
 DEFAULT_OWNER = "讲座"
 MAX_VISION_FRAMES = 20
@@ -40,6 +41,10 @@ VISION_WIDTH = 1280
 # 示例实测 MIMO ASR 约实时处理, 段长 x2 + 120s 缓冲, 防 5min 段被 timeout 砍断
 TIMEOUT_FACTOR = 2
 TIMEOUT_PADDING = 120
+# 正常讲课时长约 230-290 字/分; 静默丢字的段为 0-34 字/分
+MIN_TRANSCRIPT_CHARS_PER_MINUTE = 60
+# 触发拆细重试时每个子片段的目标时长
+FINE_SEGMENT_SECONDS = 60
 
 
 class PipelineError(Exception):
@@ -47,7 +52,10 @@ class PipelineError(Exception):
 
 
 def _run(cmd: list[str], timeout: int) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    # ffmpeg/ffprobe 输出 UTF-8; Windows 默认 GBK 会让 reader 线程抛 UnicodeDecodeError
+    return subprocess.run(
+        cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout
+    )
 
 
 def _has_audio_stream(video: Path) -> bool:
@@ -94,6 +102,40 @@ def extract_segments(video: Path, seg_dir: Path, seg_min: int, force: bool) -> l
     return segs
 
 
+def _is_transcript_too_short(text: str, duration_sec: float) -> bool:
+    """Detect the silent-drop failure mode of MIMO ASR.
+
+    On longer inputs the model sometimes answers with a few characters instead
+    of erroring (2026-09-16: 2 of 8 five-minute segments came back as "嗯。").
+    Such segments read far below the ~230-290 chars/min of normal lecturing.
+    """
+    return len(text) / max(duration_sec, 1.0) * 60 < MIN_TRANSCRIPT_CHARS_PER_MINUTE
+
+
+def _transcribe_fine(seg: Path, language: str) -> str:
+    """Re-transcribe one segment as short clips, to recover silently dropped content."""
+    work_dir = seg.parent / f"_fine_{seg.stem}"
+    work_dir.mkdir(parents=True, exist_ok=True)
+    result = _run(
+        [
+            FFMPEG, "-y", "-i", str(seg),
+            "-f", "segment", "-segment_time", str(FINE_SEGMENT_SECONDS),
+            "-ar", "16000", "-ac", "1",
+            "-acodec", "libmp3lame", "-b:a", "128k",
+            str(work_dir / "part_%03d.mp3"),
+        ],
+        1800,
+    )
+    if result.returncode != 0:
+        raise PipelineError(f"ffmpeg fine-split failed: {result.stderr[-300:]}")
+    timeout = FINE_SEGMENT_SECONDS * TIMEOUT_FACTOR + TIMEOUT_PADDING
+    parts = [
+        asr.analyze_audio(str(p), language=language, timeout=timeout)
+        for p in sorted(work_dir.glob("part_*.mp3"))
+    ]
+    return " ".join(p.strip() for p in parts if p.strip())
+
+
 def transcribe_segments(
     segs: list[Path], language: str, seg_min: int, force: bool
 ) -> tuple[str, list[str]]:
@@ -107,6 +149,16 @@ def transcribe_segments(
         print(f"  转写 {seg.name} ({i + 1}/{len(segs)}) ...")
         try:
             text = asr.analyze_audio(str(seg), language=language, timeout=timeout)
+            if _is_transcript_too_short(text, _duration(seg)):
+                print(f"      ⚠️ {seg.name} 疑似静默丢字 ({len(text)} 字), 拆 {FINE_SEGMENT_SECONDS}s 重试 ...")
+                try:
+                    finer = _transcribe_fine(seg, language)
+                except Exception as exc:
+                    print(f"      ↳ 拆细重试失败, 保留原结果: {exc}")
+                else:
+                    if len(finer) > len(text):
+                        print(f"      ↳ 恢复 {len(text)} -> {len(finer)} 字")
+                        text = finer
             out_txt.write_text(text, encoding="utf-8")
         except Exception as exc:
             failures.append(f"{seg.name}: {exc}")
@@ -147,7 +199,7 @@ def extract_frames_local(video: Path, key: str, frames_dir: Path, duration: floa
 
 def main() -> None:
     if len(sys.argv) < 2:
-        print("usage: python local_video_pipeline.py <video> [--no-vision] [--segment-min 5] [--template general] [--owner 讲座] [--language auto] [--force]")
+        print("usage: python local_video_pipeline.py <video> [--no-vision] [--segment-min 2] [--template general] [--owner 讲座] [--language auto] [--force]")
         sys.exit(1)
     video = Path(sys.argv[1])
     no_vision = False
