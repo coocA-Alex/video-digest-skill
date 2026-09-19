@@ -151,7 +151,7 @@ python scripts/local_video_merge.py --owner 讲座 --match 2026.09.16
 python scripts/visual_palette.py palette.mp4 --name mig --labels
 
 # 合集系列专追：在 config/creators.json 里给该博主配 season_id 即可
-# {"name": "某教程号", "mid": 42484832, "season_id": 8995110,
+# {"name": "某教程号", "mid": <UP主mid>, "season_id": <合集id>,
 #  "template": "tech", "vision": false, "backfill": false}
 python scripts/digest_weekly.py --max 10
 

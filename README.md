@@ -22,9 +22,12 @@
 | Bilibili subtitle fetch | `scripts/bili_subtitle.py` | AI subtitles, second-precision (requires login) |
 | Speech transcription | `scripts/mimo_asr.py` | wav/mp3 → text (MiMo ASR by default, swappable) |
 | Vision verification | `scripts/mimo_vision.py` | image/frame → visual understanding (MiMo Vision by default, swappable) |
-| Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template; content-type templates (7: stock/news/teaching/tech/lecture/wx/general), auto long-text chunking |
-| Local video parsing | `scripts/local_video_pipeline.py` | local video file → transcript → notes (any recorded source) |
+| Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template; content-type templates (7: stock/news/teaching/tech/lecture/wx/general), auto long-text chunking; finance templates add **scope labels** (CSI-only / incl. BSE / whole market), **derived-metric labels** and **conflict trust hints** |
+| Local video parsing | `scripts/local_video_pipeline.py` | local video file → transcript → notes (any recorded source); 2-min segments with silent-drop protection |
+| Lecture segment merge | `scripts/local_video_merge.py` | stitch multi-file recordings of one lecture into a single overview (defaults to the latest recording session only) |
+| Visual-only content | `scripts/visual_palette.py` | for videos whose content IS the visuals (gradient cards, palette demos): frame sampling → freeze detection → keyframe k-means palettes → HSL design rules; `--labels` reads on-screen hex codes and verifies each one |
 | Batch tracking | `scripts/digest_weekly.py` | Bilibili followed-creator incremental archive (creators via `config/creators.example.json`) |
+| **Collection tracking** | `scripts/digest_weekly.py` + `season_id` | track only a **specific collection/season**, ignoring the creator's other uploads — for course series from creators who also post unrelated content daily |
 | Frame extraction | `scripts/video_frames.py` | streaming frame extraction with timestamp manifest (ffmpeg) |
 | Frame vision pipeline | `scripts/video_vision.py` | batch frames → MiMo vision → timestamped visual summary (4 concurrent workers) |
 | XHS note/video parsing | `scripts/xhs_note.py` | Xiaohongshu link → type detect (video/image) → download → optional ASR/frames/image-text (web_session in `~/.xhs_web_session`) |

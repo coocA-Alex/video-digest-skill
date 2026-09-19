@@ -433,7 +433,7 @@ def process_video(
                 template,
                 str(detail.get("desc") or ""),
             )
-    # 短视频内容密度提示 (KH-QUALITY-2026-08-29-001 P3): <2min 标薄内容
+    # 短视频内容密度提示 (笔记质量审计 P3): <2min 标薄内容
     if int(detail["duration"]) < 120:
         summary = summary.rstrip() + (
             f"\n\n> ⚠️ 短视频 ({detail['duration']}s): 内容密度低, "

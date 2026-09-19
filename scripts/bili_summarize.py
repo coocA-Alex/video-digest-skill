@@ -432,10 +432,9 @@ def load_api_key() -> str:
     """Load the LLM key — resolution order:
 
     1. env DEEPSEEK_API_KEY (project-specific env var)
-    2. project-local config/ds_key.local.json (gitignored) — the project's
-       own key lives here; must come BEFORE generic env vars so the shared
-       ANTHROPIC_AUTH_TOKEN (MetaAgent's key) is never charged for this
-       project's calls (2026-08-27 incident)
+    2. project-local config/ds_key.local.json (gitignored) — project-specific
+       key; must come BEFORE generic env vars so a shared/generic token is
+       never charged for this project's calls
     3. env ANTHROPIC_AUTH_TOKEN (generic fallback, e.g. open-source users)
     4. ~/.claude/settings.json (Claude Code legacy fallback)
     """

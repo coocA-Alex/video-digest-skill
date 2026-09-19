@@ -16,8 +16,8 @@
     },
     {
       "name": "示例合集专追",
-      "mid": 42484832,
-      "season_id": 8995110,
+      "mid": 555555555,
+      "season_id": 777777777,
       "note": "season_id: 只追踪该合集的新集, 忽略该 UP 主的其余投稿 (必须为正整数合集 id, 填 0 或负数会直接报错, 不会静默退化); 与 backfill 互斥 (合集列表本身即全集), 故配 backfill: false。合集 id 见视频详情 API 的 ugc_season.id",
       "template": "tech",
       "vision": false,
