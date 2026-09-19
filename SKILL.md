@@ -50,7 +50,7 @@ metadata:
 | 分段讲座整合 | `scripts/local_video_merge.py` | 把同一场讲座被切成多段的录屏（`tmp/lecture/*`）按录制时间序拼接 → 单篇完整总览；**默认只合并最新一次录制会话**，`--match` 显式选、`--all` 恢复全量；长输入自动分块 |
 | 纯视觉内容解读 | `scripts/visual_palette.py` | 面向「内容就是画面」的视频/图集（渐变色卡、调色板演示、配色对比）：ffmpeg 抽帧 → 帧差定格检测 → 关键帧 k-means 调色板 → HSL 设计规律 → markdown/JSON；`--labels` 另用视觉模型读画面色号并逐条校验。此类视频音频常为纯音乐，ASR 会幻觉出歌词，必须读像素 |
 | 批量追踪 | `scripts/digest_weekly.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
-| **合集级追踪** | `scripts/digest_weekly.py` + creators 的 `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿（`fetch_season_videos` 走 polymer `seasons_archives_list`，实测免登录免 WBI 签名）。适用「课程系列专追」：当 UP 主日更多条混杂内容（如教程 + 资讯 + 专栏）时，按 UP 主全量追更会把无关内容灌进笔记库。候选集 = 合集全集 − state 已处理，每轮按 `--max` 限流，并自动跳过 backfill 分页（合集列表本身即全集） |
+| **合集级追踪** | `scripts/digest_weekly.py` + creators 的 `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿（`fetch_season_videos` 走 polymer `seasons_archives_list`，实测免登录免 WBI 签名）。适用「课程系列专追」：当 UP 主日更多条混杂内容（如教程 + 资讯 + 专栏）时，按 UP 主全量追更会把无关内容灌进笔记库。候选集 = 合集全集 − state 已处理，每轮按 `--max` 限流，并自动跳过 backfill 分页（合集列表本身即全集）。**三层准入（正交可组合）**：① `season_backfill` 时间维 —— `all`(默认，教程/系统课需全补) / `none`(只收启用后新集) / `since:YYYY-MM-DD`(**资讯类必配**，否则旧闻倒灌)；② `season_filter` 内容维 —— 标题子串或 `regex:...`；③ `season_llm_filter` 语义维 —— LLM 二次判断该集是否属于合集主题（治"博主把无关内容塞进同一合集"），判定按 bvid 缓存 |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg）; 抽帧超时自动**刷新 URL 重试**（dash URL 带 deadline, 传 sessdata 时最多重试 2 次） |
 | 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
@@ -108,6 +108,7 @@ metadata:
 - **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
 - **合集追更没生效 / 追进来一堆无关视频**：`season_id` 必须是**正整数** —— 填 `0` 或负数会直接抛错并走失败隔离（不会静默退化成"追整个 UP 主"）。合集 ID 取法：视频详情 API 的 `ugc_season.id`（`https://api.bilibili.com/x/web-interface/view?bvid=<BV>`）或合集页 URL 里的 `season_id`。报告行形如 `合集 42 集, 待处理 3 集(本轮上限 10), 新 3 条`；出现「待处理」说明本轮被 `--max` 限流，剩余下轮继续
 - **讲座分段合并选错了素材**：`local_video_merge.py` 默认只合并**最新一次录制会话**（`tmp/lecture/` 会累积历届），要指定用 `--match <录制名子串>`，要全量用 `--all`
+- **合集追更把旧闻/无关内容也灌进来**：合集的边界 ≠ 内容的边界。资讯类合集必须配 `season_backfill: "since:YYYY-MM-DD"`（不配会从最老集补起）；博主混装的话再加 `season_filter`（标题子串/正则）或 `season_llm_filter: true`（LLM 判是否属于合集主题，被拒的集会在报告里列出理由）。报告行带 `(补录=… / 标题筛 / LLM判)` 标记，没标记说明三层都没启用
 
 ## Available Scripts
 

@@ -34,6 +34,21 @@ BACKFILL_MAX_PAGES_PER_RUN = 3
 BACKFILL_PAGE_SLEEP_SECONDS = 5
 SEASON_PAGE_SIZE = 30
 SEASON_MAX_PAGES = 10
+# 合集准入三层: 补录策略(时间) → 标题筛(内容) → LLM 二次判断(语义)
+SEASON_BACKFILL_MODES = ("all", "none")
+SEASON_ADMIT_MAX_TOKENS = 8000
+SEASON_ADMIT_PROMPT = """合集《{season}》近期发布的集是:
+{refs}
+
+现在新出现一集:
+- 标题: {title}
+- 简介: {desc}
+- 时长: {minutes} 分钟
+
+判断这一集是否属于该合集的主题范畴(博主可能把无关内容也塞进同一合集)。
+只输出一行, 二选一:
+收 | <一句话理由>
+不收 | <一句话理由>"""
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from bili_subtitle import (  # noqa: E402
@@ -46,6 +61,7 @@ from bili_subtitle import (  # noqa: E402
     mixin_key,
     signed_params,
 )
+import bili_summarize  # noqa: E402  (合集准入二次判断复用其请求层)
 from bili_summarize import (  # noqa: E402
     SummaryEmptyError,
     detect_suspicious,
@@ -233,9 +249,11 @@ def fetch_paginated_videos(
     return videos, next_pn, False
 
 
-def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> list[dict[str, object]]:
+def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> tuple[list[dict[str, object]], str]:
     """Fetch every episode of one 合集 (season), in upload order.
 
+    Returns (episodes, season_title) — the title comes from the same response's
+    meta block and is used as the theme reference for LLM admission checks.
     The polymer endpoint needs no WBI signature; SESSDATA is sent anyway so
     the request carries the same login state as the rest of the pipeline.
     """
@@ -243,6 +261,7 @@ def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> list[dict[st
     session.cookies.set("SESSDATA", sessdata, domain=".bilibili.com")
     headers = dict(HEADERS, Referer=f"https://space.bilibili.com/{mid}/lists/{season_id}?type=season")
     videos: list[dict[str, object]] = []
+    season_title = ""
     for page in range(1, SEASON_MAX_PAGES + 1):
         response = session.get(
             "https://api.bilibili.com/x/polymer/web-space/seasons_archives_list",
@@ -261,6 +280,8 @@ def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> list[dict[st
         if data["code"] != 0:
             raise DigestError(f"season API {data['code']}: {data['message']}")
         archives = (data.get("data") or {}).get("archives") or []
+        if page == 1:
+            season_title = str(((data.get("data") or {}).get("meta") or {}).get("title") or "")
         if not archives:
             break
         videos.extend(
@@ -276,7 +297,73 @@ def fetch_season_videos(sessdata: str, mid: int, season_id: int) -> list[dict[st
             f"[season] 已达分页上限 {SEASON_MAX_PAGES}×{SEASON_PAGE_SIZE}, 合集可能被截断",
             file=sys.stderr,
         )
-    return videos
+    return videos, season_title
+
+
+def season_pubdate_floor(spec: object, season_id: int, state: dict[str, object]) -> int:
+    """合集补录策略 → 发布时间下限 (unix ts)。0 = 不设限。
+
+    spec: "all"(默认, 全集补齐, 适合教程/系统课) / "none"(只收启用之后的新集) /
+          "since:YYYY-MM-DD"(只收该日及之后)。资讯类合集必须显式声明, 否则会倒灌旧闻。
+    """
+    if spec is None or spec == "all":
+        return 0
+    if spec == "none":
+        # 首次运行把"启用时刻"落 state 作为基线, 之后只收更新的
+        baseline = state.setdefault("season_baseline", {})
+        key = str(season_id)
+        if key not in baseline:
+            baseline[key] = int(time.time())
+        return int(baseline[key])
+    if isinstance(spec, str) and spec.startswith("since:"):
+        try:
+            return int(datetime.strptime(spec[6:].strip(), "%Y-%m-%d").timestamp())
+        except ValueError as exc:
+            raise DigestError(f"season_backfill 日期格式错误: {spec!r} (应为 since:YYYY-MM-DD)") from exc
+    raise DigestError(f"season_backfill 非法: {spec!r} (可选 all / none / since:YYYY-MM-DD)")
+
+
+def season_title_ok(spec: object, title: str) -> bool:
+    """标题准入: 空=全收; "regex:..."=正则; 其他=子串包含。"""
+    if not spec:
+        return True
+    if isinstance(spec, str) and spec.startswith("regex:"):
+        return re.search(spec[6:], title) is not None
+    return str(spec) in title
+
+
+def season_llm_admit(
+    api_key: str,
+    season_title: str,
+    ref_titles: list[str],
+    video: dict[str, object],
+    cache: dict[str, object],
+) -> tuple[bool, str]:
+    """二次判断: 该集是否属于合集主题。结果按 bvid 缓存, 不重复判定。"""
+    bvid = str(video["bvid"])
+    if bvid in cache:
+        hit = cache[bvid]
+        assert isinstance(hit, dict)
+        return bool(hit.get("admit")), str(hit.get("reason") or "")
+    messages = [
+        {
+            "role": "user",
+            "content": SEASON_ADMIT_PROMPT.format(
+                season=season_title,
+                refs="\n".join(f"- {t}" for t in ref_titles) or "(无参考)",
+                title=video["title"],
+                desc=str(video.get("desc") or "未提供")[:200],
+                minutes=int(video.get("duration") or 0) // 60,
+            ),
+        }
+    ]
+    reply = bili_summarize._post_completions(
+        api_key, bili_summarize.MODEL, messages, max_tokens=SEASON_ADMIT_MAX_TOKENS
+    ).strip()
+    admit = reply.startswith("收")
+    reason = reply.split("|", 1)[1].strip()[:80] if "|" in reply else reply[:80]
+    cache[bvid] = {"admit": admit, "reason": reason}
+    return admit, reason
 
 
 def fetch_video_detail(bvid: str) -> dict[str, object]:
@@ -575,7 +662,7 @@ def run_digest(
         backfill_state = state.setdefault("backfill", {})
         try:
             _run_creators(
-                sessdata, api_key, processed, backfill_state,
+                sessdata, api_key, processed, backfill_state, state,
                 report_lines, max_videos, backfill_per_creator, cutoff_ts, use_vision,
             )
         finally:
@@ -598,6 +685,7 @@ def _run_creators(
     api_key: str,
     processed: dict[str, object],
     backfill_state: dict[str, object],
+    state: dict[str, object],
     report_lines: list[str],
     max_videos: int,
     backfill_per_creator: int,
@@ -614,7 +702,7 @@ def _run_creators(
         name = str(creator["name"])
         try:
             _run_one_creator(
-                sessdata, api_key, processed, backfill_state,
+                sessdata, api_key, processed, backfill_state, state,
                 report_lines, creator, max_videos, backfill_per_creator,
                 cutoff_ts, use_vision,
             )
@@ -628,6 +716,7 @@ def _run_one_creator(
     api_key: str,
     processed: dict[str, object],
     backfill_state: dict[str, object],
+    state: dict[str, object],
     report_lines: list[str],
     creator: dict[str, object],
     max_videos: int,
@@ -646,11 +735,40 @@ def _run_one_creator(
         if int(season_id) <= 0:
             raise DigestError(f"season_id 非法: {season_id} (需为正整数合集 id)")
         # 合集模式: 只跟这一个合集的新集, 忽略该 UP 主的其余投稿
-        videos = fetch_season_videos(sessdata, mid, int(season_id))
+        videos, season_title = fetch_season_videos(sessdata, mid, int(season_id))
         pending = [v for v in videos if _should_process(processed, str(v["bvid"]))]
+        # 三层准入: 补录策略(时间) → 标题筛(内容) → LLM 二次判断(语义)
+        backfill_spec = creator.get("season_backfill")
+        floor = season_pubdate_floor(backfill_spec, int(season_id), state)
+        if floor:
+            pending = [v for v in pending if int(v["pubdate"]) >= floor]
+        title_spec = creator.get("season_filter")
+        if title_spec:
+            pending = [v for v in pending if season_title_ok(title_spec, str(v["title"]))]
+        if creator.get("season_llm_filter"):
+            verdicts = state.setdefault("season_verdicts", {})
+            assert isinstance(verdicts, dict)
+            refs = [str(v["title"]) for v in videos[-8:]]
+            kept: list[dict[str, object]] = []
+            for video in pending:
+                ok, reason = season_llm_admit(api_key, season_title, refs, video, verdicts)
+                if ok:
+                    kept.append(video)
+                else:
+                    report_lines.append(
+                        f"  [LLM 过滤] {video['bvid']} {str(video['title'])[:32]} — {reason}"
+                    )
+            pending = kept
         # 首轮补齐历史集时按 max_videos 限流, 不一次跑几十集
         new_videos = pending[:max_videos]
         source = f"合集 {len(videos)} 集"
+        if backfill_spec or title_spec or creator.get("season_llm_filter"):
+            marks = [f"补录={backfill_spec or 'all'}"]
+            if title_spec:
+                marks.append("标题筛")
+            if creator.get("season_llm_filter"):
+                marks.append("LLM判")
+            source += f" ({' / '.join(marks)})"
         if len(pending) > len(new_videos):
             source += f", 待处理 {len(pending)} 集(本轮上限 {max_videos})"
     else:

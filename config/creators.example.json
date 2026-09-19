@@ -22,6 +22,18 @@
       "template": "tech",
       "vision": false,
       "backfill": false
+    },
+    {
+      "name": "示例资讯合集追踪 (三层准入)",
+      "mid": 555555556,
+      "season_id": 777777778,
+      "season_backfill": "since:2026-09-01",
+      "season_filter": "早报",
+      "season_llm_filter": true,
+      "note": "合集准入三层(正交可组合): ① season_backfill — all(默认,教程/系统课需全补)|none(只收启用之后的新集)|since:YYYY-MM-DD(资讯类推荐 —— 旧闻无时效价值, 不设会倒灌) ② season_filter — 标题子串, 或 regex:... ③ season_llm_filter — LLM 二次判断该集是否属于合集主题(治'博主把无关内容塞进同一合集'), 判定结果按 bvid 缓存进 state 不重复调用",
+      "template": "news",
+      "vision": false,
+      "backfill": false
     }
   ]
 }
