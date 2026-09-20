@@ -277,9 +277,16 @@ def decode(protocol: str, data: dict) -> str:
 
     if protocol == "openai_chat":
         try:
-            return str(data["choices"][0]["message"]["content"]).strip()
+            content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as exc:
             raise CodecError(f"响应结构异常: {str(data)[:300]}") from exc
+        # content=null 是思考型模型只回 reasoning 的常见形态; str(None) 会得到 "None"
+        # 并被当成正文写进笔记 —— 必须在这里拦住, 不能静默成功
+        if not isinstance(content, str) or not content.strip():
+            raise CodecError(
+                f"响应无正文 (content={type(content).__name__}): {str(data)[:200]}"
+            )
+        return content.strip()
 
     raise CodecError(f"未知协议 {protocol!r}")
 

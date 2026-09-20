@@ -43,7 +43,7 @@ metadata:
 
 | 能力 | 入口 | 说明 |
 |------|------|------|
-| 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
+| 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 SESSDATA，读 `~/.bili_sessdata` 文件，非环境变量） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
 | 画面核验 | `scripts/vision.py`（编码层 `llm_codec.py`） | 图片/帧 → 视觉理解（默认 DeepSeek，MIMO 为 fallback；换模型只改配置） |
 | 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 7 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ wx(公众号图文, 含配图图注节)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义）; **口径/派生/取信标注**（财经类 stock/news 模板）: 成交额/涨跌家数/市值等**口径敏感数字**标 `（口径：沪深/含北交所/全市场/口径未明）`; 由原始数字计算得出的**派生数字**（分位/均值/同比/环比/区间位置）标 `[派生·口径: <窗口或算法>]`; 画面与口播冲突处给 `建议取信：口播/画面/待核`（同一冲突在多帧复现时只标一次） |
@@ -134,8 +134,10 @@ metadata:
 | `visual_palette.py` | 纯视觉内容（色卡/调色板）解读 | `<video\|image> [--name] [--fps N] [--labels] [--out md]` |
 | `digest_daily.py` | B站关注列表/合集 批量追踪 | `[--max N] [--backfill N] [--cutoff DATE] [--no-vision]` |
 | `llm_codec.py` | 协议编码层：3 种协议的请求构造 / 响应解析 / 限制校验 / 退避重试 | 库函数: `call` `encode` `decode` `check_limits` |
-| `mimo_asr.py` | 音频转写 | `<audio> [lang]` |
-| `mimo_vision.py` | 图片/帧视觉理解 | `<image...> [--prompt]` |
+| `asr.py` | 转写入口：按 `multimodal.json` 路由 provider + fallback 降级 | 库函数: `analyze_audio(path, language)` |
+| `vision.py` | 视觉入口：按 `multimodal.json` 路由 provider + fallback 降级 | 库函数: `analyze_image` `analyze_images` |
+| `mimo_asr.py` | 音频转写（旧入口，保留兼容） | `<audio> [lang]` |
+| `mimo_vision.py` | 图片/帧视觉理解（旧入口，保留兼容） | `<image...> [--prompt]` |
 | `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |
 | `video_vision.py` | 帧批量读帧 → 视觉摘要 | `<bvid> [--force]` |
 | `wx_article.py` | 公众号图文: 正文 + 图片下载 + MIMO 图注 | `<url> [--no-vision] [--force]` |

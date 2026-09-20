@@ -77,7 +77,7 @@ from bili_summarize import (  # noqa: E402
 from bili_media import enum_pages, fetch_audio, needs_asr_fallback  # noqa: E402
 from video_frames import FrameExtractError, extract_frames, get_stream_info  # noqa: E402
 from video_vision import TECH_PROMPT, VISION_PROMPT, VisionError, summarize_frames  # noqa: E402
-from local_video_pipeline import extract_segments, transcribe_segments  # noqa: E402
+from local_video_pipeline import DEFAULT_SEGMENT_MIN, extract_segments, transcribe_segments  # noqa: E402
 
 DEFAULT_VISION_FRAMES = 20
 # B站 AI 字幕滞后生成: 无字幕视频 N 秒后重试, 避免永久漏掉
@@ -529,7 +529,8 @@ def process_video(
         print("    [asr] 字幕覆盖不足, ASR 兜底", file=sys.stderr)
         try:
             mp3 = fetch_audio(bvid, int(main_p["cid"]))
-            segs = extract_segments(mp3, PROJECT_ROOT / "tmp" / f"{bvid}_asr", 5, False)
+            # 段长必须与管线一致: 5min 段会被 MIMO ASR 静默丢字 (2026-09-16 实测 2/8)
+            segs = extract_segments(mp3, PROJECT_ROOT / "tmp" / f"{bvid}_asr", DEFAULT_SEGMENT_MIN, False)
             transcript, failures = transcribe_segments(segs, "zh", 5, False)
             if transcript and not failures:
                 subtitle_text = transcript
@@ -719,6 +720,8 @@ def run_digest(
         try:
             from review_queue import build_review_queue
             build_review_queue()
+        except ImportError:
+            pass  # 开源副本不含 review_queue.py (私有编排器组件) —— 静默跳过, 不当失败
         except Exception as exc:
             print(f"[review_queue] 生成失败: {exc}", file=sys.stderr)
     except Exception as exc:

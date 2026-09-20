@@ -527,7 +527,12 @@ def build_prompt(
     desc: str | None = None,
 ) -> list[dict[str, str]]:
     """Build the chat messages for the summarization request."""
-    tpl = TEMPLATES.get(template, TEMPLATES["stock"])
+    if template not in TEMPLATES:  # 拼错的 template 会静默出 stock 模板笔记, 必须显式报错
+        raise ValueError(
+            f"未知模板 {template!r}; 可选: {sorted(TEMPLATES)} "
+            f"(检查 creators.json 的 template 字段是否拼错)"
+        )
+    tpl = TEMPLATES[template]
     if vision_summary:
         if template == "wx":
             vision_section = "\n\n配图图注（图文正文的配图，用于补充正文未表达的信息）：\n{vision_summary}".format(vision_summary=vision_summary)
