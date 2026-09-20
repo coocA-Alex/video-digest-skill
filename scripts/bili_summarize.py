@@ -29,6 +29,8 @@ def _load_summarize_config() -> dict:
         "model": cfg.get("model", "deepseek-v4-flash"),
         "base_url": cfg.get("base_url", "https://api.deepseek.com/chat/completions"),
         "api_key_env": cfg.get("api_key_env", "DEEPSEEK_API_KEY"),
+        # Claude Code legacy 兜底默认关: 见 load_api_key 的说明
+        "allow_anthropic_token_fallback": bool(cfg.get("allow_anthropic_token_fallback", False)),
     }
 
 
@@ -448,17 +450,21 @@ def load_api_key() -> str:
             api_key = json.load(f).get("api_key", "")
         if api_key:
             return api_key
-    key = os.getenv("ANTHROPIC_AUTH_TOKEN")
-    if key:
-        return key
-    if SETTINGS_PATH.exists():
-        with open(SETTINGS_PATH, encoding="utf-8") as f:
-            api_key = json.load(f).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-        if api_key:
-            return api_key
+    # Claude Code legacy 兜底: 该 token 属于 Anthropic 侧, 拿它当 Bearer 发到上面
+    # 配置的 base_url (可以是任意第三方端点) 会把凭证送错地方 → 默认关闭, 需显式开启
+    if _SUMMARIZE_CFG["allow_anthropic_token_fallback"]:
+        key = os.getenv("ANTHROPIC_AUTH_TOKEN")
+        if key:
+            return key
+        if SETTINGS_PATH.exists():
+            with open(SETTINGS_PATH, encoding="utf-8") as f:
+                api_key = json.load(f).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
+            if api_key:
+                return api_key
     raise ApiKeyError(
-        f"no API key found: set {_SUMMARIZE_CFG['api_key_env']} or "
-        f"ANTHROPIC_AUTH_TOKEN env var, or use {LOCAL_KEY_PATH}"
+        f"no API key found: set {_SUMMARIZE_CFG['api_key_env']} or use {LOCAL_KEY_PATH} "
+        f"(Claude Code 兜底需在 config/multimodal.json 的 summarize 段显式设 "
+        f"allow_anthropic_token_fallback: true)"
     )
 
 

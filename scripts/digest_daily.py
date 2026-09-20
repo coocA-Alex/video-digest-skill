@@ -8,6 +8,7 @@ Processed videos are tracked in tmp/state.json (gitignored).
 """
 from __future__ import annotations
 
+import base64
 import json
 import msvcrt
 import os
@@ -388,9 +389,15 @@ def season_llm_admit(
             ),
         }
     ]
-    reply = bili_summarize._post_completions(
-        api_key, bili_summarize.MODEL, messages, max_tokens=SEASON_ADMIT_MAX_TOKENS
-    ).strip()
+    try:
+        reply = bili_summarize._post_completions(
+            api_key, bili_summarize.MODEL, messages, max_tokens=SEASON_ADMIT_MAX_TOKENS
+        ).strip()
+    except (KeyError, IndexError, TypeError, AttributeError, ValueError) as exc:
+        # 模型回 200 但结构异常: 单集判定失败不中断整轮, 放行并把原因写进报告
+        reason = f"判定异常({type(exc).__name__}), 默认收"
+        cache[bvid] = {"admit": True, "reason": reason}
+        return True, reason
     admit = reply.startswith("收")
     reason = reply.split("|", 1)[1].strip()[:80] if "|" in reply else reply[:80]
     cache[bvid] = {"admit": admit, "reason": reason}
@@ -400,7 +407,8 @@ def season_llm_admit(
 def fetch_video_detail(bvid: str) -> dict[str, object]:
     """Fetch title/cid/pubdate/duration/owner for one video via the view API."""
     response = requests.get(
-        f"https://api.bilibili.com/x/web-interface/view?bvid={bvid}",
+        "https://api.bilibili.com/x/web-interface/view",
+        params={"bvid": bvid},
         headers=HEADERS,
         timeout=30,
     )
@@ -420,8 +428,13 @@ def fetch_video_detail(bvid: str) -> dict[str, object]:
 
 
 def safe_filename(name: str) -> str:
-    """Strip characters that are illegal in Windows file names."""
-    return re.sub(r'[\\/:*?"<>|]', "_", name)
+    """Strip characters that are illegal in Windows file names.
+
+    Also collapses "." / ".." so a remote-supplied string cannot point at a
+    directory other than the one intended.
+    """
+    cleaned = re.sub(r'[\\/:*?"<>|]', "_", name).strip(" .")
+    return cleaned or "_"
 
 
 def archive_note(owner: str, bvid: str, detail: dict[str, object], summary: str) -> Path:
@@ -429,7 +442,7 @@ def archive_note(owner: str, bvid: str, detail: dict[str, object], summary: str)
     date_str = datetime.fromtimestamp(int(detail["pubdate"])).strftime("%Y-%m-%d")
     owner_dir = NOTES_DIR / safe_filename(owner)
     owner_dir.mkdir(parents=True, exist_ok=True)
-    out_path = owner_dir / f"{date_str}_{bvid}.md"
+    out_path = owner_dir / f"{date_str}_{safe_filename(bvid)}.md"
     minutes = int(detail["duration"]) // 60
     header = (
         f"# {detail['title']}\n\n"
@@ -626,10 +639,14 @@ def _alert_failures(report_lines: list[str]) -> None:
     message = f"VideoDigest {ts} 失败 {len(failures)} 项:\n" + "\n".join(
         line[:100] for line in failures[:5]
     )
-    cmd = [
-        "powershell", "-NoProfile", "-Command",
+    # 走 -EncodedCommand (UTF-16LE base64): 报告行含远端 message/笔记路径, 不进命令行
+    script = (
         "(New-Object -ComObject WScript.Shell).Popup("
-        f"'{message.replace(chr(39), chr(39)*2)}', 30, 'VideoDigest', 64)",
+        f"'{message.replace(chr(39), chr(39)*2)}', 30, 'VideoDigest', 64)"
+    )
+    cmd = [
+        "powershell", "-NoProfile", "-EncodedCommand",
+        base64.b64encode(script.encode("utf-16-le")).decode("ascii"),
     ]
     try:
         # popup auto-closes after 30s; timeout must outlive it

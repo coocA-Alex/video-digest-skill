@@ -1,12 +1,12 @@
 ---
 name: video-digest
-version: "0.2.0"
+version: "0.3.0"
 description: 视频与图文内容解析与笔记。兼容 B站视频（单视频/UP主追更/合集系列追踪）、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、纯视觉内容解读、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、追更某个 UP 主或某个合集系列、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文、追更、跟新视频、追踪课程系列、合集追更。
 author: coocA-Alex
 tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr, tracking, season]
 license: MIT
 metadata:
-  version: 0.2.0
+  version: 0.3.0
 ---
 
 # 视频解析与情报追踪
@@ -19,7 +19,7 @@ metadata:
 
 - Python 3.11+ 与 `requests`；`ffmpeg`（画面核验/音频提取场景）
 - MiMo API key（多模态 ASR/视觉，`MIMO_API_KEY` 环境变量或项目 .env）
-- LLM 总结 key（`ANTHROPIC_AUTH_TOKEN` 或项目 .env，DeepSeek flash 建议 max_tokens=50000）
+- LLM 总结 key（`DEEPSEEK_API_KEY` 或项目 .env / `config/ds_key.local.json`，DeepSeek flash 建议 max_tokens=50000）
 - B站字幕直取需 SESSDATA（`~/.bili_sessdata`）；小红书解析需 web_session（`~/.xhs_web_session`）
 
 ## 环境依赖
@@ -29,7 +29,7 @@ metadata:
 | `MIMO_API_KEY` | MiMo API 密钥（多模态，与官方 MiMo-Skills 一致） | 是 |
 | `SESSDATA` | B站登录 cookie（AI 字幕直取，存 `~/.bili_sessdata`） | 部分视频需要 |
 | web_session | 小红书登录 cookie（推文/视频解析，存 `~/.xhs_web_session`） | 小红书需要 |
-| DS key（`ANTHROPIC_AUTH_TOKEN` 或项目 .env） | LLM 总结 | 是 |
+| DS key（`DEEPSEEK_API_KEY` 或项目 .env / `config/ds_key.local.json`） | LLM 总结 | 是 |
 
 | 依赖 | 说明 | 必需 |
 |------|------|------|
@@ -69,7 +69,7 @@ metadata:
 ## 配置（凭证隔离 — 重要）
 
 - **API key 一律从环境变量读取**（agent 无关，Claude Code / Codex / 其他 agent 均可）：
-  - `MIMO_API_KEY`（多模态）、`DEEPSEEK_API_KEY`（总结，兼容 `ANTHROPIC_AUTH_TOKEN`）
+  - `MIMO_API_KEY`（多模态）、`DEEPSEEK_API_KEY`（总结；本地也可用 `config/ds_key.local.json`）
 - **登录凭证一律存仓库外文件**：B站 SESSDATA（`~/.bili_sessdata`）、小红书 web_session（`~/.xhs_web_session`）；scripts 只读这些路径，不打印不落盘
 - **本 skill 及 scripts 中不包含任何真实 key/凭证**
 - **换模型**：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），
@@ -82,7 +82,8 @@ metadata:
   - **不另建常驻桥接脚本**；可选模型清单与接入要点见 `docs/vision-model-options.md`
 - 示例配置见 `config/multimodal.json`（不含 key）
 - **Agent 兼容**：**已验证集成：Claude Code、Codex Desktop**（2026-08-29：skill 发现、包结构、脚本语法在 Codex Desktop 验证通过；端到端 provider 执行待验证）。核心能力为 Python CLI，可供能够读取 Markdown 技能说明并执行本地命令的其他 agent（Cursor/OpenClaw 等）适配；其他 agent 集成尚未实际验证。
-- **key 解析顺序** = 环境变量 → 项目本地配置 → Claude Code 全局配置（最后一项为 **Claude Code legacy fallback**，不作为 Codex 或其他 agent 的前置条件）
+- **key 解析顺序** = 环境变量（`api_key_env`）→ 项目本地配置（`config/ds_key.local.json`）。
+  **Claude Code legacy 兜底默认关闭**：`ANTHROPIC_AUTH_TOKEN` 是 Anthropic 侧凭证，被当作 Bearer 发到上面配置的 `base_url`（可能是第三方端点）等于把 key 送错地方 → 只有显式信任该端点时才启用：在 `config/multimodal.json` 的 `summarize` 段设 `"allow_anthropic_token_fallback": true`
 
 ## 合规
 

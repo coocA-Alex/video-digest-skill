@@ -103,16 +103,24 @@ def fetch_audio(bvid: str, cid: int, out_mp3: Path | None = None, force: bool = 
             url = play["data"]["dash"]["audio"][0]["baseUrl"]
         except (KeyError, IndexError):
             raise BiliMediaError(f"no dash audio for {bvid}")
+        # 不带 Cookie: dash 流 URL 自带签名, 凭证不必进 argv (与 video_frames
+        # 抽帧的既有做法一致)。也让下面超时异常不可能回显凭证。
         headers_arg = (
             "Referer: https://www.bilibili.com\r\n"
             "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n"
-            f"Cookie: SESSDATA={session.cookies.get('SESSDATA', domain='.bilibili.com')}\r\n"
         )
-        r = subprocess.run(
-            ["ffmpeg", "-y", "-headers", headers_arg, "-i", url,
-             "-vn", "-c:a", "libmp3lame", "-b:a", "128k", str(out_mp3)],
-            capture_output=True, text=True, timeout=AUDIO_DOWNLOAD_TIMEOUT,
-        )
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-y", "-headers", headers_arg, "-i", url,
+                 "-vn", "-c:a", "libmp3lame", "-b:a", "128k", str(out_mp3)],
+                capture_output=True, text=True, timeout=AUDIO_DOWNLOAD_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            # 不抛原始异常: TimeoutExpired.__str__ 会回显完整 argv (含带签名的媒体 URL)
+            out_mp3.unlink(missing_ok=True)
+            raise BiliMediaError(
+                f"audio download timed out after {AUDIO_DOWNLOAD_TIMEOUT}s for {bvid}"
+            ) from None
         if r.returncode == 0 and out_mp3.exists() and out_mp3.stat().st_size > 0:
             return out_mp3
         # URL 可能带 deadline 中途失效: 重试前删半成品并刷新 URL
