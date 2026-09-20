@@ -18,7 +18,8 @@ metadata:
 ## Prerequisites
 
 - Python 3.11+ 与 `requests`；`ffmpeg`（画面核验/音频提取场景）
-- MiMo API key（多模态 ASR/视觉，`MIMO_API_KEY` 环境变量或项目 .env）
+- MiMo API key（语音转写，兼画面核验 fallback；`MIMO_API_KEY` 环境变量或项目 .env）
+- 视觉模型 key（默认 DeepSeek，`DEEPSEEK_API_KEY`；也可用 `config/ds_key.local.json`）
 - LLM 总结 key（`DEEPSEEK_API_KEY` 或项目 .env / `config/ds_key.local.json`，DeepSeek flash 建议 max_tokens=50000）
 - B站字幕直取需 SESSDATA（`~/.bili_sessdata`）；小红书解析需 web_session（`~/.xhs_web_session`）
 
@@ -26,7 +27,8 @@ metadata:
 
 | 环境变量 | 说明 | 必需 |
 |---------|------|------|
-| `MIMO_API_KEY` | MiMo API 密钥（多模态，与官方 MiMo-Skills 一致） | 是 |
+| `MIMO_API_KEY` | MiMo API 密钥（语音转写；视觉 fallback） | 是（ASR 用） |
+| `DEEPSEEK_API_KEY` | 视觉（默认）+ 文本总结；也可放 `config/ds_key.local.json` | 是 |
 | `SESSDATA` | B站登录 cookie（AI 字幕直取，存 `~/.bili_sessdata`） | 部分视频需要 |
 | web_session | 小红书登录 cookie（推文/视频解析，存 `~/.xhs_web_session`） | 小红书需要 |
 | DS key（`DEEPSEEK_API_KEY` 或项目 .env / `config/ds_key.local.json`） | LLM 总结 | 是 |
@@ -43,7 +45,7 @@ metadata:
 |------|------|------|
 | 单视频字幕直取 | `scripts/bili_subtitle.py <bvid> <cid>` | B站 AI 字幕（需 .env SESSDATA） |
 | 语音转写 | `scripts/mimo_asr.py`（经 analysis 模块） | wav/mp3 → 文本（默认 MIMO，可换模型） |
-| 画面核验 | `scripts/mimo_vision.py` | 图片/帧 → 视觉理解（默认 MIMO，可换模型） |
+| 画面核验 | `scripts/vision.py`（编码层 `llm_codec.py`） | 图片/帧 → 视觉理解（默认 DeepSeek，MIMO 为 fallback；换模型只改配置） |
 | 结构化总结 | `scripts/bili_summarize.py <subtitle> <owner> [out.md] [style] [desc]` | **内容类型模板 7 类 (MECE: 互斥穷尽)** — stock(股市收评)/ news(资讯多主题, 含财经要闻)/ teaching(教学方法论)/ tech(评测/单主题解析)/ lecture(讲座含问答)/ wx(公众号图文, 含配图图注节)/ general(兜底); **自动分流**: 显式配置(creators)优先 → LLM 分类 detect_template → general 兜底; news 类**按叙事链分节**（事件→起因→影响→观点）, 杜绝口播碎片罗列; 另可显式指定输出格式 style (keypoints/timeline/notes/opinions, 与内容类型正交); 可选传视频简介校正字幕音译; **超长字幕（>40k 字符）自动语义分块**（[30k,35k] 区间内找 [mm:ss] 时间戳行切点 → 块总结 hash 缓存 → 二次合并，避免硬切断语义）; **口径/派生/取信标注**（财经类 stock/news 模板）: 成交额/涨跌家数/市值等**口径敏感数字**标 `（口径：沪深/含北交所/全市场/口径未明）`; 由原始数字计算得出的**派生数字**（分位/均值/同比/环比/区间位置）标 `[派生·口径: <窗口或算法>]`; 画面与口播冲突处给 `建议取信：口播/画面/待核`（同一冲突在多帧复现时只标一次） |
 | 多P/长视频兼容 | `scripts/bili_media.py` | `enum_pages(bvid)` 多P 枚举（112P 实测）/ `check_coverage(字幕, 时长)` 字幕覆盖比 / `needs_asr_fallback` 长视频（>20min）覆盖 <70% 判定 / `fetch_audio(bvid, cid)` dash 音频下载（Cookie+URL 刷新重试，ASR 兜底用） |
 | 本地视频解析 | `scripts/local_video_pipeline.py` | 本地视频文件 → 转写 → 笔记（支持任意来源录制）；**默认 2 分钟一段**并带静默丢字防护（见 Limitations） |
@@ -72,14 +74,20 @@ metadata:
   - `MIMO_API_KEY`（多模态）、`DEEPSEEK_API_KEY`（总结；本地也可用 `config/ds_key.local.json`）
 - **登录凭证一律存仓库外文件**：B站 SESSDATA（`~/.bili_sessdata`）、小红书 web_session（`~/.xhs_web_session`）；scripts 只读这些路径，不打印不落盘
 - **本 skill 及 scripts 中不包含任何真实 key/凭证**
-- **换模型**：编辑 `config/multimodal.json`（asr/vision/summarize 段的 provider/model/base_url/api_key_env），
-  例如总结换 OpenAI 兼容模型 = 改 base_url + model + api_key_env；协议不同的模型需新增适配器脚本
-- **视觉模型可选清单**（画面核验，默认 MIMO；换模型见下）：
-  - `mimo-v2.5`（默认，Anthropic 兼容 messages API，`MIMO_API_KEY`）
-  - `glm-5.3-flash`（智谱原生多模态，OpenAI 兼容 chat/completions，`https://open.bigmodel.cn/api/paas/v4/chat/completions`，key 用 `ZHIPU_API_KEY`；图片/视频输入、1M 上下文；thinking 始终开启需留 max_tokens 余量）
-  - GPT 视觉（待 Codex 侧测试后补充；OpenAI 兼容格式与 GLM 相同）
-  - **替换步骤**：① multimodal.json 的 vision 段改 base_url/model/api_key_env → ② 若协议与 Anthropic messages 不同（如 GLM/GPT 的 OpenAI 格式），修改 `mimo_vision.py` 请求构造（content 数组 `image`+`source/base64` → `image_url`+`url` 的 data URL；header `api-key` → `Authorization: Bearer`；响应取 `choices[0].message.content`）→ ③ .env 配对应 key。协议相同的模型仅改配置即可
-  - **不另建常驻桥接脚本**；可选模型清单与接入要点见 `docs/vision-model-options.md`
+- **换模型 = 改配置，不改代码**：编辑 `config/multimodal.json` 的 `asr`/`vision` 段。每段字段：
+  `provider`(标记) / `protocol`(协议) / `model` / `base_url` / `api_key_env`（可选 `api_key_file`）/
+  `auth`(认证头) / `params`(供应商私有开关，原样透传) / `limits`(硬限制) / `fallback`(失败降级链)
+  - `protocol`：`anthropic_messages` | `openai_chat` | `transcriptions`（编码层 `scripts/llm_codec.py`）
+  - `auth`：`bearer`（Authorization: Bearer）| `x-api-key` | `api-key`
+  - 硬限制超限**显式报错**（不静默丢弃、不留给 API 报 400）；**配置字段名拼错也直接报错**，不会静默走默认值
+- **视觉模型可选清单**（画面核验；2026-09-20 起默认 DeepSeek，MIMO 降为 fallback）：
+  - `deepseek-flash`（**默认**，Anthropic 兼容端点 `https://api.deepseek.com/anthropic/v1/messages`，
+    认证头 `x-api-key`，`DEEPSEEK_API_KEY`。同帧盲测：关键数字与枚举完整性均优于 MIMO）
+  - `mimo-v2.5`（**fallback**，Anthropic 兼容 messages，`api-key` 头，`MIMO_API_KEY`）
+  - `glm-5.3-flash`（智谱原生多模态，走 `openai_chat` 协议，`ZHIPU_API_KEY`；`thinking` 不可关，需留 max_tokens 余量）
+  - GPT 视觉（走 `openai_chat` 协议，格式与 GLM 相同）
+  - **接入步骤**：只要协议属于上表 3 种 → **只改配置**（protocol/model/base_url/api_key_env/auth/params/limits），不用碰代码；确实是新协议才需要新增编码器
+  - **不另建常驻桥接脚本**；协议抽象设计见 `docs/2026-09-20-model-compat-design.md`
 - 示例配置见 `config/multimodal.json`（不含 key）
 - **Agent 兼容**：**已验证集成：Claude Code、Codex Desktop**（2026-08-29：skill 发现、包结构、脚本语法在 Codex Desktop 验证通过；端到端 provider 执行待验证）。核心能力为 Python CLI，可供能够读取 Markdown 技能说明并执行本地命令的其他 agent（Cursor/OpenClaw 等）适配；其他 agent 集成尚未实际验证。
 - **key 解析顺序** = 环境变量（`api_key_env`）→ 项目本地配置（`config/ds_key.local.json`）。
@@ -107,6 +115,8 @@ metadata:
 - **B站 412 / 空响应**：平台风控 → 停止重试 30 分钟以上，或交给定时任务兜底；单博主失败已隔离不影响其他。**风控期间备选**：从视频页面 HTML（`curl --compressed`）提取 cid + 标题/简介，字幕走 player API（通常未风控），视频流走 playurl API（fnval=4048 取 dash）
 - **小红书无 __INITIAL_STATE__**：登录态失效或链接过期 → 重新提供 web_session / 链接
 - **MIMO 500**：服务端暂时故障 → 等待 90s 重试，或 `--force` 重跑
+- **换了模型后报「配置含未知字段」/「配置缺 protocol 字段」**：`config/multimodal.json` 的字段名写错或漏了。字段名拼错**不会**静默走默认值 —— 这正是为了防"改了没生效"这类最难查的问题。对照 `_说明` 里的字段清单改
+- **报「所有视觉通道均失败」**：主通道与 `fallback` 都失败了，错误信息里会逐条列出每个通道的失败原因（HTTP 状态 + 响应片段，不含凭证）。常见原因：key 未配（`api_key_env` 变量没设且 `api_key_file` 不可读）、协议与端点不匹配（如把 Anthropic 端点写进 `openai_chat`）
 - **合集追更没生效 / 追进来一堆无关视频**：`season_id` 必须是**正整数** —— 填 `0` 或负数会直接抛错并走失败隔离（不会静默退化成"追整个 UP 主"）。合集 ID 取法：视频详情 API 的 `ugc_season.id`（`https://api.bilibili.com/x/web-interface/view?bvid=<BV>`）或合集页 URL 里的 `season_id`。报告行形如 `合集 42 集, 待处理 3 集(本轮上限 10), 新 3 条`；出现「待处理」说明本轮被 `--max` 限流，剩余下轮继续
 - **讲座分段合并选错了素材**：`local_video_merge.py` 默认只合并**最新一次录制会话**（`tmp/lecture/` 会累积历届），要指定用 `--match <录制名子串>`，要全量用 `--all`
 - **合集追更把旧闻/无关内容也灌进来**：合集的边界 ≠ 内容的边界。资讯类合集必须配 `season_backfill: "since:YYYY-MM-DD"`（不配会从最老集补起）；博主混装的话再加 `season_filter`（标题子串/正则）或 `season_llm_filter: true`（LLM 判是否属于合集主题，被拒的集会在报告里列出理由）。报告行带 `(补录=… / 标题筛 / LLM判)` 标记，没标记说明三层都没启用
@@ -123,6 +133,7 @@ metadata:
 | `local_video_merge.py` | 分段讲座录屏 → 单篇总览 | `[--owner] [--title] [--match 子串] [--all] [--force]` |
 | `visual_palette.py` | 纯视觉内容（色卡/调色板）解读 | `<video\|image> [--name] [--fps N] [--labels] [--out md]` |
 | `digest_daily.py` | B站关注列表/合集 批量追踪 | `[--max N] [--backfill N] [--cutoff DATE] [--no-vision]` |
+| `llm_codec.py` | 协议编码层：3 种协议的请求构造 / 响应解析 / 限制校验 / 退避重试 | 库函数: `call` `encode` `decode` `check_limits` |
 | `mimo_asr.py` | 音频转写 | `<audio> [lang]` |
 | `mimo_vision.py` | 图片/帧视觉理解 | `<image...> [--prompt]` |
 | `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |

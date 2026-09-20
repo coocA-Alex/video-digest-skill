@@ -1,6 +1,6 @@
 # video-digest-skill — Video Parsing & Notes
 
-> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos, Xiaohongshu (RED) notes/videos, WeChat public-account articles, and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, extracting text from images (with per-image captions, so figures become searchable content), and separating hard facts from opinions. Bring your own models: MiMo by default, any OpenAI-compatible provider via one config line.
+> **Stop re-watching videos to remember them.** video-digest turns Bilibili videos, Xiaohongshu (RED) notes/videos, WeChat public-account articles, and local recordings into structured, verified notes — pulling subtitles or transcribing speech, checking key visuals with vision models, extracting text from images (with per-image captions, so figures become searchable content), and separating hard facts from opinions. Bring your own models: DeepSeek for vision, MiMo for speech by default — swapping models is config-only (no code changes within 3 supported protocols), with automatic fallback when the primary channel fails.
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
@@ -9,19 +9,19 @@
 - **Multi-source input**: Bilibili AI subtitles (second-precision), Xiaohongshu notes/videos (auto type-detect), WeChat articles (text + image captioning), or any local video file
 - **Multimodal pipeline**: speech transcription + frame-level vision verification + image-text extraction & captioning
 - **Fact/opinion split**: structured summaries that keep claims verifiable
-- **Bring your own model**: one config line swaps in any OpenAI-compatible provider
+- **Bring your own model**: DeepSeek for vision + MiMo for speech by default; within the three supported protocols (Anthropic messages / OpenAI chat / transcription) swapping is **config-only**, with an automatic fallback chain
 - **Zero credentials in repo**: keys live in environment variables only
 - **Tested integrations**: Claude Code and Codex Desktop (skill discovery + package layout validated 2026-08-29; end-to-end provider execution pending). Core pipeline is Python CLI-based and can be adapted to other agents that can load Markdown skill instructions and execute local commands. Other agent integrations have not yet been validated.
 
-> Personal-use tool, open-sourced. Built on Xiaomi MiMo multimodal models (ASR + vision) and DeepSeek for summarization — all swappable via config.
+> Personal-use tool, open-sourced. Built on DeepSeek (vision verification + summarization) and Xiaomi MiMo (speech transcription) — all swappable via config.
 
 ## Capabilities
 
 | Capability | Script | Notes |
 |------------|--------|-------|
 | Bilibili subtitle fetch | `scripts/bili_subtitle.py` | AI subtitles, second-precision (requires login) |
-| Speech transcription | `scripts/mimo_asr.py` | wav/mp3 → text (MiMo ASR by default, swappable) |
-| Vision verification | `scripts/mimo_vision.py` | image/frame → visual understanding (MiMo Vision by default, swappable) |
+| Speech transcription | `scripts/asr.py` (codec: `llm_codec.py`) | wav/mp3 → text (MiMo by default, swappable, auto-fallback) |
+| Vision verification | `scripts/vision.py` (codec: `llm_codec.py`) | image/frame → visual understanding (DeepSeek by default, MiMo as fallback) |
 | Structured summary | `scripts/bili_summarize.py` | fact/opinion dual-track template; content-type templates (7: stock/news/teaching/tech/lecture/wx/general), auto long-text chunking; finance templates add **scope labels** (CSI-only / incl. BSE / whole market), **derived-metric labels** and **conflict trust hints** |
 | Local video parsing | `scripts/local_video_pipeline.py` | local video file → transcript → notes (any recorded source); 2-min segments with silent-drop protection |
 | Lecture segment merge | `scripts/local_video_merge.py` | stitch multi-file recordings of one lecture into a single overview (defaults to the latest recording session only) |
@@ -57,7 +57,7 @@ Natural-language triggers: **"parse this video [URL/BV]" / "parse this local vid
    DEEPSEEK_API_KEY=your_deepseek_key
    ```
    Login cookies live **outside the repo** (never committed): Bilibili SESSDATA → `~/.bili_sessdata`; Xiaohongshu web_session → `~/.xhs_web_session`. Scripts read these paths only and never print them.
-2. Swappable models: edit `config/multimodal.json` (asr/vision/summarize sections: provider/model/base_url/api_key_env). OpenAI-compatible swap = config change; different protocols need a new adapter script.
+2. Swappable models: edit the `asr`/`vision` sections of `config/multimodal.json` (provider/protocol/model/base_url/api_key_env/auth/params/limits/fallback). If the protocol is one of Anthropic messages / OpenAI chat / transcription → **config-only change**; a new protocol needs a new codec (see `scripts/llm_codec.py`).
 3. **Agent compatibility**: Tested integrations: Claude Code and Codex Desktop. Scripts are plain Python CLI with no agent dependency; key resolution order = environment → project-local config → Claude Code global config (Claude Code legacy fallback, not a prerequisite for other agents).
 
 ## Open-source notice

@@ -24,6 +24,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = PROJECT_ROOT / "config" / "multimodal.json"
 LOCAL_CONFIG_PATH = PROJECT_ROOT / "config" / "multimodal.local.json"
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import llm_codec  # noqa: E402  (同目录, 协议编码层)
+
 
 def _load_vision_config() -> dict:
     if not CONFIG_PATH.exists():
@@ -52,13 +55,6 @@ def _resolve_codex_home(cfg: dict) -> str | None:
             return str(cand)
     home_dot = str(Path.home() / ".codex")
     return home_dot if os.path.isdir(home_dot) else None
-
-
-def _delegate_mimo():
-    from mimo_vision import analyze_image as _mimo_image
-    from mimo_vision import analyze_images as _mimo_images
-
-    return _mimo_image, _mimo_images
 
 
 def _codex_cli_images(image_paths: list[str], prompt: str, timeout: int = 600) -> str:
@@ -112,21 +108,36 @@ def _codex_cli_images(image_paths: list[str], prompt: str, timeout: int = 600) -
             pass
 
 
+def _run_chain(cfg: dict, image_paths: list[str], prompt: str, max_tokens: int,
+               system: str, enable_thinking: bool = False) -> str:
+    """主通道 + fallback 链依次尝试。降级会打印一行, 不静默。"""
+    blocks = [{"type": "image", "path": p} for p in image_paths]
+    chain = [cfg] + [c for c in (cfg.get("fallback") or []) if isinstance(c, dict)]
+    errors: list[str] = []
+    for i, c in enumerate(chain):
+        if enable_thinking and i == 0:
+            c = {**c, "params": {**(c.get("params") or {}), "thinking": {"type": "enabled"}}}
+        try:
+            text = llm_codec.call(c, blocks, prompt=prompt, system=system,
+                                  max_tokens=max_tokens, timeout=c.get("timeout", 180))
+            if i:
+                print(f"[vision] 主通道失败, 已降级到 {c.get('provider')}", file=sys.stderr)
+            return text
+        except Exception as exc:  # noqa: BLE001 - 任一通道失败都继续试下一个
+            errors.append(f"{c.get('provider')}: {exc}")
+            if i + 1 < len(chain):
+                print(f"[vision] {c.get('provider')} 失败 ({exc}), 试 fallback", file=sys.stderr)
+    raise RuntimeError("所有视觉通道均失败: " + " | ".join(errors))
+
+
 def analyze_image(image_path: str, prompt: str = "请详细描述这张图片的内容",
                   max_tokens: int = 2048, system: str = "",
                   enable_thinking: bool = False) -> str:
     """Send one image to the configured vision provider. Returns text."""
-    provider = _load_vision_config().get("provider", "mimo")
-    if provider == "mimo":
-        fn, _ = _delegate_mimo()
-        return fn(image_path, prompt, max_tokens=max_tokens, system=system,
-                  enable_thinking=enable_thinking)
-    if provider == "codex-cli":
+    cfg = _load_vision_config()
+    if cfg.get("provider") == "codex-cli":  # subprocess provider: 不走 HTTP 抽象
         return _codex_cli_images([image_path], prompt)
-    raise RuntimeError(
-        f"vision provider '{provider}' not implemented; "
-        "supported: mimo, codex-cli (openai-responses needs OPENAI_API_KEY, stage B)"
-    )
+    return _run_chain(cfg, [image_path], prompt, max_tokens, system, enable_thinking)
 
 
 def analyze_images(image_paths: list[str], prompt: str = "请详细描述这些图片的内容",
@@ -134,16 +145,10 @@ def analyze_images(image_paths: list[str], prompt: str = "请详细描述这些�
     """Send multiple images to the configured vision provider. Returns text."""
     if not image_paths:
         raise ValueError("no image paths given")
-    provider = _load_vision_config().get("provider", "mimo")
-    if provider == "mimo":
-        _, fn = _delegate_mimo()
-        return fn(image_paths, prompt, max_tokens=max_tokens, system=system)
-    if provider == "codex-cli":
+    cfg = _load_vision_config()
+    if cfg.get("provider") == "codex-cli":  # subprocess provider: 不走 HTTP 抽象
         return _codex_cli_images(image_paths, prompt)
-    raise RuntimeError(
-        f"vision provider '{provider}' not implemented; "
-        "supported: mimo, codex-cli (openai-responses needs OPENAI_API_KEY, stage B)"
-    )
+    return _run_chain(cfg, image_paths, prompt, max_tokens, system)
 
 
 if __name__ == "__main__":

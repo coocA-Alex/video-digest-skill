@@ -1,16 +1,60 @@
 {
-  "_说明": "多模态模型配置。key 一律从 .env 读（api_key_env 指定环境变量名），本文件不存任何凭证。换模型 = 改 provider/model/base_url，或新增适配器脚本。",
+  "_说明": "多模态模型配置。key 一律从环境变量读（api_key_env 指定变量名，可选 api_key_file 指向含 api_key 字段的本地 json），本文件不存任何凭证。换模型 = 改 provider/protocol/model/base_url/auth/params/limits（protocol: anthropic_messages|openai_chat|transcriptions；auth: bearer|x-api-key|api-key），**不需要改代码**；协议编码见 scripts/llm_codec.py。fallback 是主通道失败后依次尝试的完整配置数组。字段名拼错会直接报错（不会静默走默认值）。",
   "asr": {
     "provider": "mimo",
+    "protocol": "openai_chat",
     "model": "mimo-v2.5-asr",
     "base_url": "https://api.xiaomimimo.com/v1/chat/completions",
-    "api_key_env": "MIMO_API_KEY"
+    "api_key_env": "MIMO_API_KEY",
+    "auth": "api-key",
+    "params": {
+      "asr_options": {}
+    },
+    "limits": {
+      "max_audio_bytes": 10485760,
+      "allowed_audio_exts": [
+        ".wav",
+        ".mp3"
+      ]
+    },
+    "fallback": [],
+    "_可选_glm_asr": "智谱 glm-asr-2512 走 transcriptions 协议已支持, 但默认不进 fallback: 它硬限单段 <=30 秒, 与 2 分钟分段冲突 (接入需先把分段降到 30s, 请求数 ×4)。要用自行加进 fallback: {\"provider\":\"glm\",\"protocol\":\"transcriptions\",\"model\":\"glm-asr-2512\",\"base_url\":\"https://open.bigmodel.cn/api/paas/v4/audio/transcriptions\",\"api_key_env\":\"ZHIPU_API_KEY\",\"auth\":\"bearer\",\"limits\":{\"max_audio_bytes\":26214400,\"max_audio_seconds\":30,\"allowed_audio_exts\":[\".wav\",\".mp3\"]}}"
   },
   "vision": {
-    "provider": "mimo",
-    "model": "mimo-v2.5",
-    "base_url": "https://api.xiaomimimo.com/anthropic/v1/messages",
-    "api_key_env": "MIMO_API_KEY"
+    "provider": "deepseek",
+    "protocol": "anthropic_messages",
+    "model": "deepseek-flash",
+    "base_url": "https://api.deepseek.com/anthropic/v1/messages",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "api_key_file": "config/ds_key.local.json",
+    "auth": "x-api-key",
+    "params": {
+      "thinking": {
+        "type": "disabled"
+      }
+    },
+    "limits": {
+      "max_image_bytes": 33554432,
+      "max_images": 600
+    },
+    "fallback": [
+      {
+        "provider": "mimo",
+        "protocol": "anthropic_messages",
+        "model": "mimo-v2.5",
+        "base_url": "https://api.xiaomimimo.com/anthropic/v1/messages",
+        "api_key_env": "MIMO_API_KEY",
+        "auth": "api-key",
+        "params": {
+          "thinking": {
+            "type": "disabled"
+          }
+        },
+        "limits": {
+          "max_image_bytes": 52428800
+        }
+      }
+    ]
   },
   "summarize": {
     "provider": "openai-compat",
