@@ -58,7 +58,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
    ```
    登录 cookie 一律存**仓库外**（绝不提交）：B站 SESSDATA → `~/.bili_sessdata`；小红书 web_session → `~/.xhs_web_session`。脚本只读这些路径，从不打印。
 2. 多模态模型可替换：编辑 `config/multimodal.json` 的 `asr`/`vision` 段（provider/protocol/model/base_url/api_key_env/auth/params/limits/fallback）。协议属于 Anthropic messages / OpenAI chat / 转写三种之一 → **只改配置**；超出这三种才需要加编码器。
-3. **Agent 兼容**：已验证集成：Claude Code、Codex Desktop。scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量 → 项目本地配置 → Claude Code 全局配置（Claude Code legacy fallback，不作为其他 agent 前置条件）。
+3. **Agent 兼容**：已验证集成：Claude Code、Codex Desktop。scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量（`api_key_env`）→ 项目内 key 文件（`api_key_file`，如 `config/ds_key.local.json`）。**Claude Code 全局配置兜底默认关闭**，需在 `multimodal.json` 的 `summarize` 段显式设 `allow_anthropic_token_fallback: true`。
 
 ## 开源说明
 

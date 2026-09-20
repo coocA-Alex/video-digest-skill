@@ -58,7 +58,7 @@ Natural-language triggers: **"parse this video [URL/BV]" / "parse this local vid
    ```
    Login cookies live **outside the repo** (never committed): Bilibili SESSDATA → `~/.bili_sessdata`; Xiaohongshu web_session → `~/.xhs_web_session`. Scripts read these paths only and never print them.
 2. Swappable models: edit the `asr`/`vision` sections of `config/multimodal.json` (provider/protocol/model/base_url/api_key_env/auth/params/limits/fallback). If the protocol is one of Anthropic messages / OpenAI chat / transcription → **config-only change**; a new protocol needs a new codec (see `scripts/llm_codec.py`).
-3. **Agent compatibility**: Tested integrations: Claude Code and Codex Desktop. Scripts are plain Python CLI with no agent dependency; key resolution order = environment → project-local config → Claude Code global config (Claude Code legacy fallback, not a prerequisite for other agents).
+3. **Agent compatibility**: Tested integrations: Claude Code and Codex Desktop. Scripts are plain Python CLI with no agent dependency; key resolution order = environment variable (`api_key_env`) → project-local key file (`api_key_file`, e.g. `config/ds_key.local.json`). **The Claude Code global-config fallback is off by default** — enable it explicitly with `allow_anthropic_token_fallback: true` in the `summarize` section of `multimodal.json`.
 
 ## Open-source notice
 

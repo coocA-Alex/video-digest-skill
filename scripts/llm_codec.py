@@ -55,6 +55,30 @@ KNOWN_KEYS = {
     "auth", "params", "limits", "fallback", "token_param", "timeout", "codex_home",
 }
 
+# limits 子键白名单: 顶层拼错会报错, 子键拼错同样不能静默不生效
+KNOWN_LIMITS = {
+    "max_images", "max_image_bytes", "max_audio_bytes", "max_audio_seconds",
+    "allowed_audio_exts",
+}
+
+
+def check_config_keys(config: dict, require_protocol: bool = True) -> None:
+    """校验配置字段名。拼错 (如 protocal) 会静默走默认值, 是最难查的一类 bug。"""
+    unknown = {k for k in config if not k.startswith("_")} - KNOWN_KEYS
+    if unknown:
+        raise CodecError(
+            f"配置含未知字段 {sorted(unknown)} —— 可能拼写错误; 已知字段: {sorted(KNOWN_KEYS)}"
+        )
+    if require_protocol and not config.get("protocol"):
+        raise CodecError(
+            f"配置缺 protocol 字段 (provider={config.get('provider')}, "
+            f"base_url={config.get('base_url')}) —— 见 config/multimodal.json 示例"
+        )
+    limits = config.get("limits") or {}
+    bad_limits = {k for k in limits if not k.startswith("_")} - KNOWN_LIMITS
+    if bad_limits:
+        raise CodecError(f"limits 含未知字段 {sorted(bad_limits)}; 已知: {sorted(KNOWN_LIMITS)}")
+
 
 def resolve_key(config: dict) -> str:
     """取 key: 环境变量优先, 其次 api_key_file (相对路径按项目根解析)。
@@ -71,6 +95,10 @@ def resolve_key(config: dict) -> str:
     path = Path(key_file)
     if not path.is_absolute():
         path = PROJECT_ROOT / path
+    path = path.resolve()
+    # 限定在项目内: 否则配置可指向任意路径, 读到别的 api_key 再发往任意 base_url
+    if not path.is_relative_to(PROJECT_ROOT):
+        raise CodecError(f"api_key_file 必须位于项目目录内: {key_file}")
     try:
         return str(json.loads(path.read_text(encoding="utf-8")).get("api_key", "") or "")
     except (OSError, ValueError, AttributeError):
@@ -138,7 +166,13 @@ def check_limits(blocks: list[dict], limits: dict) -> None:
             )
         if max_audio_seconds:
             duration = _audio_duration(path)
-            if duration and duration > max_audio_seconds:
+            if duration is None:
+                # 取不到时长就拒发: 否则这条限制会静默不生效 (而它通常正是接入动机)
+                raise CodecError(
+                    f"无法读取音频时长 (ffprobe 不可用?), 而配置声明了 "
+                    f"max_audio_seconds={max_audio_seconds} —— 拒绝发送以免超限: {path.name}"
+                )
+            if duration > max_audio_seconds:
                 raise CodecError(
                     f"音频时长 {duration:.0f}s 超过上限 {max_audio_seconds}s: {path.name} "
                     f"(该模型需更短分段)"
@@ -169,12 +203,14 @@ def encode(protocol: str, model: str, blocks: list[dict], prompt: str = "",
                 )
         if prompt:
             content.append({"type": "text", "text": prompt})
-        payload: dict = {"model": model, "messages": [{"role": "user", "content": content}]}
+        # params 先打底、固定字段后覆盖: 防 params 里的同名键静默遮蔽 model/messages
+        payload: dict = dict(params or {})
+        payload["model"] = model
+        payload["messages"] = [{"role": "user", "content": content}]
         if max_tokens:
             payload["max_tokens"] = max_tokens
         if system:
             payload["system"] = system
-        payload.update(params or {})
         return payload, None
 
     if protocol == "openai_chat":
@@ -196,10 +232,11 @@ def encode(protocol: str, model: str, blocks: list[dict], prompt: str = "",
             content.append({"type": "text", "text": prompt})
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": content})
-        payload = {"model": model, "messages": messages}
+        payload: dict = dict(params or {})
+        payload["model"] = model
+        payload["messages"] = messages
         if max_tokens:
             payload[token_param] = max_tokens
-        payload.update(params or {})
         return payload, None
 
     if protocol == "transcriptions":
@@ -207,10 +244,10 @@ def encode(protocol: str, model: str, blocks: list[dict], prompt: str = "",
         if len(audios) != 1:
             raise CodecError(f"transcriptions 协议需要恰好 1 个音频块, 收到 {len(audios)} 个")
         p = Path(audios[0]["path"])
-        data = {"model": model}
+        data: dict = dict(params or {})
+        data["model"] = model
         if language and language != "auto":
             data["language"] = language
-        data.update(params or {})
         files = {"file": (p.name, p.read_bytes(), f"audio/{p.suffix.lstrip('.').lower()}")}
         return data, files
 
@@ -254,19 +291,8 @@ def call(config: dict, blocks: list[dict], prompt: str = "", system: str = "",
     配置缺 protocol 时显式报错 (而不是猜 base_url) —— 老配置请对照
     config/creators.example.json 同级的 multimodal.json 补齐 protocol/auth。
     """
-    # 未知键直接报错: 配置拼错 (如 protocal) 会静默走默认值, 是最难查的一类 bug
-    unknown = {k for k in config if not k.startswith("_")} - KNOWN_KEYS
-    if unknown:
-        raise CodecError(
-            f"配置含未知字段 {sorted(unknown)} —— 可能拼写错误; 已知字段: {sorted(KNOWN_KEYS)}"
-        )
-
-    protocol = config.get("protocol")
-    if not protocol:
-        raise CodecError(
-            f"配置缺 protocol 字段 (provider={config.get('provider')}, "
-            f"base_url={config.get('base_url')}) —— 见 config/multimodal.json 示例"
-        )
+    check_config_keys(config)
+    protocol = config["protocol"]
     key = resolve_key(config)
     if not key:
         raise CodecError(

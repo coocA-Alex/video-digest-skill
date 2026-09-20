@@ -108,11 +108,10 @@ def _codex_cli_images(image_paths: list[str], prompt: str, timeout: int = 600) -
             pass
 
 
-def _run_chain(cfg: dict, image_paths: list[str], prompt: str, max_tokens: int,
+def _run_chain(chain: list[dict], image_paths: list[str], prompt: str, max_tokens: int,
                system: str, enable_thinking: bool = False) -> str:
-    """主通道 + fallback 链依次尝试。降级会打印一行, 不静默。"""
+    """按给定链条依次尝试。降级会打印一行, 不静默。"""
     blocks = [{"type": "image", "path": p} for p in image_paths]
-    chain = [cfg] + [c for c in (cfg.get("fallback") or []) if isinstance(c, dict)]
     errors: list[str] = []
     for i, c in enumerate(chain):
         if enable_thinking and i == 0:
@@ -130,14 +129,34 @@ def _run_chain(cfg: dict, image_paths: list[str], prompt: str, max_tokens: int,
     raise RuntimeError("所有视觉通道均失败: " + " | ".join(errors))
 
 
+def _http_chain(cfg: dict) -> list[dict]:
+    """HTTP 主通道 + fallback 数组。"""
+    return [cfg] + [c for c in (cfg.get("fallback") or []) if isinstance(c, dict)]
+
+
+def _codex_or_chain(cfg: dict, image_paths: list[str], prompt: str, max_tokens: int,
+                    system: str, enable_thinking: bool = False) -> str:
+    """codex-cli 是 subprocess provider, 不走 HTTP 抽象; 但它失败时同样要降级,
+    且配置字段名照样要校验 (否则写错了会静默被忽略)。"""
+    llm_codec.check_config_keys(cfg, require_protocol=False)
+    try:
+        return _codex_cli_images(image_paths, prompt)
+    except Exception as exc:  # noqa: BLE001 - 失败后按 fallback 链继续
+        rest = [c for c in (cfg.get("fallback") or []) if isinstance(c, dict)]
+        if not rest:
+            raise
+        print(f"[vision] codex-cli 失败 ({exc}), 试 fallback", file=sys.stderr)
+        return _run_chain(rest, image_paths, prompt, max_tokens, system, enable_thinking)
+
+
 def analyze_image(image_path: str, prompt: str = "请详细描述这张图片的内容",
                   max_tokens: int = 2048, system: str = "",
                   enable_thinking: bool = False) -> str:
     """Send one image to the configured vision provider. Returns text."""
     cfg = _load_vision_config()
-    if cfg.get("provider") == "codex-cli":  # subprocess provider: 不走 HTTP 抽象
-        return _codex_cli_images([image_path], prompt)
-    return _run_chain(cfg, [image_path], prompt, max_tokens, system, enable_thinking)
+    if cfg.get("provider") == "codex-cli":
+        return _codex_or_chain(cfg, [image_path], prompt, max_tokens, system, enable_thinking)
+    return _run_chain(_http_chain(cfg), [image_path], prompt, max_tokens, system, enable_thinking)
 
 
 def analyze_images(image_paths: list[str], prompt: str = "请详细描述这些图片的内容",
@@ -146,9 +165,9 @@ def analyze_images(image_paths: list[str], prompt: str = "请详细描述这些�
     if not image_paths:
         raise ValueError("no image paths given")
     cfg = _load_vision_config()
-    if cfg.get("provider") == "codex-cli":  # subprocess provider: 不走 HTTP 抽象
-        return _codex_cli_images(image_paths, prompt)
-    return _run_chain(cfg, image_paths, prompt, max_tokens, system)
+    if cfg.get("provider") == "codex-cli":
+        return _codex_or_chain(cfg, image_paths, prompt, max_tokens, system)
+    return _run_chain(_http_chain(cfg), image_paths, prompt, max_tokens, system)
 
 
 if __name__ == "__main__":

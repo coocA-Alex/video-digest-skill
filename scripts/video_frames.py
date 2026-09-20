@@ -125,7 +125,8 @@ def extract_frames(
         if result.returncode != 0:
             if attempt < retries and sessdata:
                 continue
-            raise FrameExtractError(f"ffmpeg failed: {result.stderr[-500:]}")
+            # 不附带 stderr: 它含带签名的 dash URL, 会随调用方落进 tmp/digest.log
+            raise FrameExtractError(f"ffmpeg failed to extract frames (exit {result.returncode})")
         break
     frames = sorted(out_dir.glob("frame_*.jpg"))
     manifest = {
