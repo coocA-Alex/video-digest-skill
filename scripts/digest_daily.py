@@ -66,6 +66,7 @@ from bili_subtitle import (  # noqa: E402
     mixin_key,
     signed_params,
 )
+import llm_codec  # noqa: E402  (异常类型: 编码层失败 = 供应商/协议层问题)
 import bili_summarize  # noqa: E402  (合集准入二次判断复用其请求层)
 from bili_summarize import (  # noqa: E402
     SummaryEmptyError,
@@ -391,9 +392,9 @@ def season_llm_admit(
     ]
     try:
         reply = bili_summarize._post_completions(
-            api_key, bili_summarize.MODEL, messages, max_tokens=SEASON_ADMIT_MAX_TOKENS
+            messages, max_tokens=SEASON_ADMIT_MAX_TOKENS
         ).strip()
-    except (KeyError, IndexError, TypeError, AttributeError, ValueError) as exc:
+    except (llm_codec.CodecError, KeyError, IndexError, TypeError, AttributeError, ValueError) as exc:
         # 模型回 200 但结构异常: 单集判定失败不中断整轮, 放行并把原因写进报告
         reason = f"判定异常({type(exc).__name__}), 默认收"
         cache[bvid] = {"admit": True, "reason": reason}
@@ -461,9 +462,13 @@ def find_archive(bvid: str, detail: dict[str, object]) -> Path | None:
     return path if path.exists() else None
 
 
+# 数字优先只适用行情模板; 其余(界面/字幕类)抓画面原文, 未知模板也归这边
+_NUMERIC_VISION_TEMPLATES = frozenset({"stock"})
+
+
 def _vision_prompt(template: str) -> str:
-    """Scene-aware vision extraction: numbers for stock, on-screen text for tech."""
-    return TECH_PROMPT if template == "tech" else VISION_PROMPT
+    """Scene-aware vision extraction: market numbers for stock, on-screen text otherwise."""
+    return VISION_PROMPT if template in _NUMERIC_VISION_TEMPLATES else TECH_PROMPT
 
 
 def _collect_vision_summary(
@@ -676,7 +681,7 @@ def _handle_video(
         _mark_processed(processed, bvid, None, None, no_subtitle=True)
         report_lines.append(f"  {tag}跳过 {bvid} (无字幕, 已记 state): {exc}")
         return
-    except (SubtitleError, requests.RequestException) as exc:
+    except (SubtitleError, llm_codec.CodecError, requests.RequestException) as exc:
         report_lines.append(f"  {tag}失败 {bvid}: {exc}")
         return
     if out_path is None:
@@ -757,7 +762,7 @@ def _run_creators(
                 report_lines, creator, max_videos, backfill_per_creator,
                 cutoff_ts, use_vision,
             )
-        except (DigestError, requests.RequestException, SummaryEmptyError) as exc:
+        except (DigestError, llm_codec.CodecError, requests.RequestException, SummaryEmptyError) as exc:
             report_lines.append(f"[{name}] 失败隔离, 跳过本轮: {exc}")
             print(f"[{name}] 失败隔离, 跳过本轮: {exc}", file=sys.stderr)
 

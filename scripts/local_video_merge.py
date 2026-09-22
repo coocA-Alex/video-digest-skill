@@ -35,7 +35,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bili_summarize  # noqa: E402
 
 # v4-flash 思考型: 长输入必须给足 max_tokens (50000 实测 API 接受; 8192 会被思考吃光)
-MERGE_MODEL = "deepseek-v4-flash"
 MERGE_MAX_TOKENS = 50000
 SAFE_INPUT_CHARS = 40000  # 单次输入上限: 中文约 1.3 字符/token, 给上下文与输出留余量
 CHUNK_CHARS = 30000
@@ -108,7 +107,7 @@ def collect_segments(
     return segs
 
 
-def _chunk_summary(text: str, api_key: str, template: str, cache_dir: Path) -> str:
+def _chunk_summary(text: str, template: str, cache_dir: Path) -> str:
     """Summarize one chunk, cached by content hash (crash-resume support)."""
     h = hashlib.md5(text.encode("utf-8")).hexdigest()[:12]
     cache = cache_dir / f"{h}.md"
@@ -118,13 +117,13 @@ def _chunk_summary(text: str, api_key: str, template: str, cache_dir: Path) -> s
     messages[-1]["content"] = messages[-1]["content"].replace(
         "以下是 {owner} 的视频《{title}》字幕全文", "以下是讲座的一段文本"
     )
-    result = bili_summarize._post_completions(api_key, MERGE_MODEL, messages, max_tokens=MERGE_MAX_TOKENS)
+    result = bili_summarize._post_completions(messages, max_tokens=MERGE_MAX_TOKENS)
     cache.parent.mkdir(parents=True, exist_ok=True)
     cache.write_text(result, encoding="utf-8")
     return result
 
 
-def merge(segs: list[tuple[str, str, str]], api_key: str, template: str = "lecture") -> str:
+def merge(segs: list[tuple[str, str, str]], template: str = "lecture") -> str:
     """Summarize all segments into one overview, chunking when needed."""
     inputs = [
         f"===== 片段 {name} =====\n{transcript}\n\n{vision}"
@@ -142,7 +141,7 @@ def merge(segs: list[tuple[str, str, str]], api_key: str, template: str = "lectu
             f"===== 片段 {name} =====\n{v}" for name, _, v in segs if v.strip()
         )
         messages = bili_summarize.build_prompt("讲座", "完整讲座", transcript, vision or None, template)
-        return bili_summarize._post_completions(api_key, MERGE_MODEL, messages, max_tokens=MERGE_MAX_TOKENS)
+        return bili_summarize._post_completions(messages, max_tokens=MERGE_MAX_TOKENS)
 
     # 分块: 每块 ≤ CHUNK_CHARS, 块总结后合并 (块级缓存支持断点续跑)
     chunks, cur = [], ""
@@ -154,10 +153,10 @@ def merge(segs: list[tuple[str, str, str]], api_key: str, template: str = "lectu
             cur = f"{cur}\n\n{text}" if cur else text
     if cur:
         chunks.append(cur)
-    chunk_summaries = [_chunk_summary(c, api_key, template, cache_dir) for c in chunks]
+    chunk_summaries = [_chunk_summary(c, template, cache_dir) for c in chunks]
     merged = "\n\n".join(f"===== 分块 {i + 1} =====\n{s}" for i, s in enumerate(chunk_summaries))
     messages = bili_summarize.build_prompt("讲座", "完整讲座(分块合并)", merged, None, template)
-    return bili_summarize._post_completions(api_key, MERGE_MODEL, messages, max_tokens=MERGE_MAX_TOKENS)
+    return bili_summarize._post_completions(messages, max_tokens=MERGE_MAX_TOKENS)
 
 
 def main() -> None:
@@ -195,8 +194,8 @@ def main() -> None:
         print(f"已存在, 跳过: {out_path}")
         sys.exit(0)
 
-    api_key = bili_summarize.load_api_key()
-    overview = merge(segs, api_key)
+    bili_summarize.load_api_key()  # 早失败: 取不到 key 就不必跑完抽帧/ASR 才发现
+    overview = merge(segs)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(overview, encoding="utf-8")
     print(f"总览归档 -> {out_path} ({len(overview)} 字)")

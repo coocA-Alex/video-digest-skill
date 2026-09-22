@@ -12,33 +12,25 @@ import sys
 import time
 from pathlib import Path
 
-import requests
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import llm_codec  # noqa: E402  (协议编码层: 换模型/换供应商 = 改配置不改代码)
+
 
 def _load_summarize_config() -> dict:
-    """Read LLM provider config from config/multimodal.json (summarize section).
+    """Read the summarize provider block from config/multimodal.json.
 
-    Model/URL/key-env-var are swappable per config; the key itself only ever
-    comes from the environment or user-level files, never from the json.
+    与 asr/vision 段同构 (provider/protocol/model/base_url/auth/params/limits/fallback)。
+    换模型或换供应商 = 改这一段, 不改代码; 本文件与 json 都不存凭证。
     """
     cfg_path = Path(__file__).resolve().parent.parent / "config" / "multimodal.json"
     try:
         cfg = json.loads(cfg_path.read_text(encoding="utf-8")).get("summarize", {})
     except Exception:
         cfg = {}
-    return {
-        "model": cfg.get("model", "deepseek-v4-flash"),
-        "base_url": cfg.get("base_url", "https://api.deepseek.com/chat/completions"),
-        "api_key_env": cfg.get("api_key_env", "DEEPSEEK_API_KEY"),
-        # Claude Code legacy 兜底默认关: 见 load_api_key 的说明
-        "allow_anthropic_token_fallback": bool(cfg.get("allow_anthropic_token_fallback", False)),
-    }
+    return cfg
 
 
 _SUMMARIZE_CFG = _load_summarize_config()
-API_URL = _SUMMARIZE_CFG["base_url"]
-MODEL = _SUMMARIZE_CFG["model"]
-FALLBACK_MODEL = _SUMMARIZE_CFG["model"]
-SETTINGS_PATH = Path.home() / ".claude" / "settings.json"  # Claude Code fallback (optional)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOCAL_KEY_PATH = PROJECT_ROOT / "config" / "ds_key.local.json"
 REQUEST_TIMEOUT_SECONDS = 120
@@ -431,40 +423,17 @@ class SummaryEmptyError(Exception):
 
 
 def load_api_key() -> str:
-    """Load the LLM key — resolution order:
+    """取 summarize 段请求要用的 key (供调用方早失败预检)。
 
-    1. env DEEPSEEK_API_KEY (project-specific env var)
-    2. project-local config/ds_key.local.json (gitignored) — project-specific
-       key; must come BEFORE generic env vars so a shared/generic token is
-       never charged for this project's calls
-    3. env ANTHROPIC_AUTH_TOKEN (generic fallback, e.g. open-source users)
-    4. ~/.claude/settings.json (Claude Code legacy fallback)
+    与编码层 resolve_key 同一来源 (环境变量 → api_key_file), 所以预检通过
+    就等于请求时一定取得到 key —— 不会出现"预检过了、发请求时没 key"。
     """
-    import os
-
-    key = os.getenv(_SUMMARIZE_CFG["api_key_env"])
+    key = llm_codec.resolve_key(_SUMMARIZE_CFG)
     if key:
         return key
-    if LOCAL_KEY_PATH.exists():
-        with open(LOCAL_KEY_PATH, encoding="utf-8") as f:
-            api_key = json.load(f).get("api_key", "")
-        if api_key:
-            return api_key
-    # Claude Code legacy 兜底: 该 token 属于 Anthropic 侧, 拿它当 Bearer 发到上面
-    # 配置的 base_url (可以是任意第三方端点) 会把凭证送错地方 → 默认关闭, 需显式开启
-    if _SUMMARIZE_CFG["allow_anthropic_token_fallback"]:
-        key = os.getenv("ANTHROPIC_AUTH_TOKEN")
-        if key:
-            return key
-        if SETTINGS_PATH.exists():
-            with open(SETTINGS_PATH, encoding="utf-8") as f:
-                api_key = json.load(f).get("env", {}).get("ANTHROPIC_AUTH_TOKEN", "")
-            if api_key:
-                return api_key
     raise ApiKeyError(
-        f"no API key found: set {_SUMMARIZE_CFG['api_key_env']} or use {LOCAL_KEY_PATH} "
-        f"(Claude Code 兜底需在 config/multimodal.json 的 summarize 段显式设 "
-        f"allow_anthropic_token_fallback: true)"
+        f"no API key found: set {_SUMMARIZE_CFG.get('api_key_env')} or provide "
+        f"{_SUMMARIZE_CFG.get('api_key_file')} (见 config/multimodal.json 的 summarize 段)"
     )
 
 
@@ -502,7 +471,7 @@ def detect_template(
             {"role": "system", "content": "输出简体中文。"},
             {"role": "user", "content": prompt},
         ]
-        out = _post_completions(api_key, MODEL, messages, max_tokens=300)
+        out = _post_completions(messages, max_tokens=300)
         import json as _json
 
         text = out.strip()
@@ -551,18 +520,46 @@ def build_prompt(
     ]
 
 
-def _post_completions(api_key: str, model: str, messages: list[dict[str, str]], max_tokens: int = MAX_OUTPUT_TOKENS) -> str:
-    """Post one chat completion request and return the reply text."""
-    headers = {"Authorization": f"Bearer {api_key}"}
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": 0.3,
-        "max_tokens": max_tokens,
-    }
-    response = requests.post(API_URL, json=payload, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]["content"]
+def _post_completions(messages: list[dict[str, str]], max_tokens: int = MAX_OUTPUT_TOKENS) -> str:
+    """按配置链条发一次聊天请求, 返回正文。
+
+    协议/认证/参数/限额全部来自 config/multimodal.json 的 summarize 段 ——
+    换模型或换供应商只改配置。主通道失败 → 依次试 fallback, 每步打印一行。
+    配置本身写错 (字段名拼错 / 缺 protocol / 取不到 key) 在进链条前就抛,
+    不会被降级逻辑吞成"某通道失败"。
+    """
+    system = ""
+    blocks: list[dict] = []
+    for m in messages:
+        if m.get("role") == "system":
+            system = str(m.get("content") or "")
+        else:
+            blocks.append({"type": "text", "text": str(m.get("content") or "")})
+
+    chain = [_SUMMARIZE_CFG] + [c for c in (_SUMMARIZE_CFG.get("fallback") or []) if isinstance(c, dict)]
+    for cfg in chain:
+        llm_codec.check_config_keys(cfg)
+        if not llm_codec.resolve_key(cfg):
+            raise ApiKeyError(
+                f"summarize 配置取不到 key (provider={cfg.get('provider')}, "
+                f"api_key_env={cfg.get('api_key_env')}, api_key_file={cfg.get('api_key_file')})"
+            )
+
+    errors: list[str] = []
+    for i, cfg in enumerate(chain):
+        try:
+            text = llm_codec.call(cfg, blocks, system=system, max_tokens=max_tokens,
+                                  timeout=cfg.get("timeout", REQUEST_TIMEOUT_SECONDS))
+        except Exception as exc:  # noqa: BLE001 - 任一通道失败都继续试下一个
+            errors.append(f"{cfg.get('provider')}: {exc}")
+            if i + 1 < len(chain):
+                print(f"[summarize] {cfg.get('provider')} 失败 ({exc}), 试 fallback", file=sys.stderr)
+            continue
+        if i:
+            print(f"[summarize] 主通道失败, 已降级到 {cfg.get('provider')}", file=sys.stderr)
+        return text
+
+    raise llm_codec.CodecError("所有 summarize 通道均失败: " + " | ".join(errors))
 
 
 # --- 超长字幕: 语义切块 + 分块总结 + 二次合并 --------------------------------
@@ -605,7 +602,7 @@ def _chunk_boundary(text: str, lo: int = CHUNK_LO_CHARS, hi: int = CHUNK_HI_CHAR
 
 
 def _summarize_long(
-    api_key: str, owner: str, title: str, subtitle_text: str,
+    owner: str, title: str, subtitle_text: str,
     vision_summary: str | None, template: str, desc: str | None,
 ) -> str:
     """Chunk a long subtitle (> SAFE_INPUT_CHARS) at semantic boundaries,
@@ -630,9 +627,7 @@ def _summarize_long(
             block_summaries.append(cache_file.read_text(encoding="utf-8").strip())
             continue
         messages = build_prompt(owner, title, chunk, None, template, desc)
-        content = _post_completions(api_key, MODEL, messages)
-        if not content or not content.strip():
-            content = _post_completions(api_key, FALLBACK_MODEL, messages)
+        content = _post_completions(messages)
         if not content or not content.strip():
             raise SummaryEmptyError(f"long-summary chunk {i + 1}/{len(chunks)} empty")
         cache_file.write_text(content, encoding="utf-8")
@@ -650,9 +645,7 @@ def _summarize_long(
         {"role": "system", "content": "输出使用简体中文，markdown 格式。"},
         {"role": "user", "content": merge_prompt},
     ]
-    final = _post_completions(api_key, MODEL, messages)
-    if not final or not final.strip():
-        final = _post_completions(api_key, FALLBACK_MODEL, messages)
+    final = _post_completions(messages)
     if not final or not final.strip():
         raise SummaryEmptyError("long-summary merge empty")
     return final
@@ -667,32 +660,33 @@ def summarize_subtitle(
     template: str = "stock",
     desc: str | None = None,
 ) -> str:
-    """Summarize subtitle text with model fallback on API error.
+    """Summarize subtitle text; 通道级降级由配置链负责, 这里失败后重试一次整条链。
 
-    Empty model output is retried once; transient API hiccups have been
-    observed to return empty content for otherwise-valid prompts.
+    api_key 只用于早失败预检 —— 实际请求的凭证由编码层按同一段配置解析
+    (环境变量 → api_key_file), 不再硬编码进请求头。
     """
+    if not str(api_key).strip():
+        raise ApiKeyError("api_key 为空; 见 config/multimodal.json 的 summarize 段")
     if not subtitle_text.strip():
         raise ValueError("subtitle text is empty")
     if len(subtitle_text) > SAFE_INPUT_CHARS:
-        return _summarize_long(api_key, owner, title, subtitle_text, vision_summary, template, desc)
+        return _summarize_long(owner, title, subtitle_text, vision_summary, template, desc)
     messages = build_prompt(owner, title, subtitle_text, vision_summary, template, desc)
+    last_exc: Exception | None = None
     for attempt in range(2):
         try:
-            content = _post_completions(api_key, MODEL, messages)
-        except requests.HTTPError as exc:
-            if exc.response.status_code == 404:
-                content = _post_completions(api_key, FALLBACK_MODEL, messages)
-            else:
-                raise
-        if content and content.strip():
-            return content
-        # v4-flash 思考型模型偶发 content 为空: 换非思考模型兜底重试
-        content = _post_completions(api_key, FALLBACK_MODEL, messages)
+            content = _post_completions(messages)
+        except llm_codec.CodecError as exc:
+            # 整条链都失败 (网络/限流/响应无正文): 退避后重试一次
+            last_exc = exc
+            time.sleep(5)
+            continue
         if content and content.strip():
             return content
         time.sleep(5)
-    raise SummaryEmptyError("all model attempts returned empty content (thinking model + fallback)")
+    if last_exc is not None:
+        raise last_exc
+    raise SummaryEmptyError("all model attempts returned empty content")
 
 
 def main() -> None:
