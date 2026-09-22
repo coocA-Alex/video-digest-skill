@@ -54,9 +54,9 @@ metadata:
 | 批量追踪 | `scripts/digest_daily.py` | B站关注列表增量 → 归档（creators 用 `config/creators.example.json` 模板） |
 | **合集级追踪** | `scripts/digest_daily.py` + creators 的 `season_id` | 只追**指定合集**的新集，忽略该 UP 主其余投稿（`fetch_season_videos` 走 polymer `seasons_archives_list`，实测免登录免 WBI 签名）。适用「课程系列专追」：当 UP 主日更多条混杂内容（如教程 + 资讯 + 专栏）时，按 UP 主全量追更会把无关内容灌进笔记库。候选集 = 合集全集 − state 已处理，每轮按 `--max` 限流，并自动跳过 backfill 分页（合集列表本身即全集）。**三层准入（正交可组合）**：① `season_backfill` 时间维 —— `all`(默认，教程/系统课需全补) / `none`(只收启用后新集) / `since:YYYY-MM-DD`(**资讯类必配**，否则旧闻倒灌)；② `season_filter` 内容维 —— 标题子串或 `regex:...`；③ `season_llm_filter` 语义维 —— LLM 二次判断该集是否属于合集主题（治"博主把无关内容塞进同一合集"），判定按 bvid 缓存；④ `season_include_others: true` 合集**之外**也收该 UP 主的投稿（科普/教学类构成知识体系；走 space API 取最近 30 条并剔除合集内已有的，**该通道失败只降级不抛出**，保证合集通道不被拖垮）。合集端点改 `sort_reverse=true` 最新在前 + 按时间下限早停（日常 1 页代替 10 页，`all` 模式不早停），并对 `-352`/HTTP 412 做 30s/60s/90s 退避重试；候选集按发布时间**降序**取 `--max`（积压时先出最新，倒着往回追） |
 | 视频抽帧 | `scripts/video_frames.py` | B站/本地视频流式抽帧 → 时间戳 manifest（ffmpeg）; 抽帧超时自动**刷新 URL 重试**（dash URL 带 deadline, 传 sessdata 时最多重试 2 次） |
-| 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → MIMO 读帧 → 时间戳视觉摘要（并发 4 workers） |
+| 帧画面核验管道 | `scripts/video_vision.py` | manifest 帧批量 → 视觉读帧（默认 DeepSeek，MIMO 为 fallback）→ 时间戳视觉摘要（并发 4 workers） |
 | 小红书推文/视频解析 | `scripts/xhs_note.py <url> [--extract]` | 小红书链接 → 类型判断（视频/图文）→ 下载 → 可选 ASR/帧/图片文字提取（web_session 存 `~/.xhs_web_session`） |
-| 公众号图文解析 | `scripts/wx_article.py <url>` | mp.weixin.qq.com → 正文提取（图片转 [图N] 占位）→ 图片下载 + MIMO 图注化（配图成为可检索内容）→ wx 模板总结；幂等缓存 tmp/wx_{id}/ |
+| 公众号图文解析 | `scripts/wx_article.py <url>` | mp.weixin.qq.com → 正文提取（图片转 [图N] 占位）→ 图片下载 + 视觉图注化（默认 DeepSeek；配图成为可检索内容）→ wx 模板总结；**正文缺失时自动走 `window.desc` 兜底**（微信对部分文章只吐分享/SEO 预渲染变体，无正文 DOM，此时无配图）；幂等缓存 tmp/wx_{id}/ |
 | 文档转换 | `markitdown`（微软开源, 全局 python311, LW 项目成熟用法） | PDF/docx/html → markdown，用于 arxiv 论文等文档型内容解析（`markitdown <file>` CLI 或 `from markitdown import MarkItDown`） |
 
 ## 工作流（解析一个视频）
@@ -140,7 +140,7 @@ metadata:
 | `mimo_vision.py` | 图片/帧视觉理解（旧入口，保留兼容） | `<image...> [--prompt]` |
 | `video_frames.py` | 流式抽帧 + 时间戳 manifest | `<bvid/url> [--count N]` |
 | `video_vision.py` | 帧批量读帧 → 视觉摘要 | `<bvid> [--force]` |
-| `wx_article.py` | 公众号图文: 正文 + 图片下载 + MIMO 图注 | `<url> [--no-vision] [--force]` |
+| `wx_article.py` | 公众号图文: 正文 + 图片下载 + 视觉图注 | `<url> [--no-vision] [--force] [--skip-existing]` |
 
 ## Examples
 
