@@ -1,12 +1,12 @@
 ---
 name: video-digest
-version: "0.3.0"
+version: "0.4.0"
 description: 视频与图文内容解析与笔记。兼容 B站视频（单视频/UP主追更/合集系列追踪）、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、纯视觉内容解读、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、追更某个 UP 主或某个合集系列、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文、追更、跟新视频、追踪课程系列、合集追更。
 author: coocA-Alex
 tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr, tracking, season]
 license: MIT
 metadata:
-  version: 0.3.0
+  version: 0.4.0
 ---
 
 # 视频解析与情报追踪
