@@ -562,6 +562,14 @@ def _post_completions(messages: list[dict[str, str]], max_tokens: int = MAX_OUTP
     raise llm_codec.CodecError("所有 summarize 通道均失败: " + " | ".join(errors))
 
 
+def call_text(system: str, user: str, max_tokens: int = MAX_OUTPUT_TOKENS) -> str:
+    """公开入口: 用 summarize 配置链条跑一次纯文本请求 (供同项目的其他脚本复用)。"""
+    return _post_completions(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        max_tokens=max_tokens,
+    )
+
+
 # --- 超长字幕: 语义切块 + 分块总结 + 二次合并 --------------------------------
 # 阈值与块级缓存设计复用 local_video_merge (40000 安全线 / 30000 块起点)。
 # 切点不硬切在字符数上: 在 [lo, hi] 区间内找最后一个语义边界

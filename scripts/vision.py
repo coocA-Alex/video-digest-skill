@@ -170,6 +170,22 @@ def analyze_images(image_paths: list[str], prompt: str = "请详细描述这些�
     return _run_chain(_http_chain(cfg), image_paths, prompt, max_tokens, system)
 
 
+def analyze_image_secondary(image_path: str, prompt: str, max_tokens: int = 2048) -> str:
+    """Read one image with the FALLBACK provider only - the second, independent
+    opinion used for cross-checking (main channel already read it at note time).
+    Raises if no fallback is configured, rather than silently reusing the main
+    provider (same model re-reading = self-confirmation, which proves nothing).
+    """
+    cfg = _load_vision_config()
+    chain = [c for c in (cfg.get("fallback") or []) if isinstance(c, dict)]
+    if not chain:
+        raise RuntimeError("vision.fallback 未配置: 没有独立的第二视觉通道")
+    primary = cfg.get("provider")
+    if all(c.get("provider") == primary for c in chain):
+        raise RuntimeError(f"fallback 与主通道同为 {primary}: 不构成独立通道")
+    return _run_chain(chain, [image_path], prompt, max_tokens, "")
+
+
 if __name__ == "__main__":
     args = sys.argv[1:]
     if not args:
