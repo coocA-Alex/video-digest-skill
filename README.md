@@ -35,6 +35,24 @@
 | Multi-P / long video | `scripts/bili_media.py` | page enumeration (112-P verified) / subtitle-coverage check / ASR fallback for long videos (>20min) |
 | Document conversion | `markitdown` (Microsoft OSS, global python311) | PDF/docx/html → markdown, for arXiv papers and other document-type content |
 
+## How it works
+
+```mermaid
+flowchart TD
+    A1["Bilibili<br/>video / collection"]
+    A2["Xiaohongshu<br/>note / video"]
+    A3["WeChat article"]
+    A4["Local video file"]
+
+    A1 & A2 & A3 & A4 --> ACQ["1 · Text acquisition<br/>AI subtitles · speech transcription<br/>(2-min segments, silent-drop guard)<br/>· article body + image captions"]
+    ACQ --> VIS["2 · Visual verification<br/>streamed frame extraction with a timestamp manifest,<br/>then a vision model reads the key frames"]
+    VIS --> SUM["3 · Structured summary<br/>content-type template, fact / opinion split,<br/>numbers kept verbatim, conflicts flagged"]
+    SUM --> OUT["4 · Notes<br/>markdown, archived per source"]
+    OUT --> USE["Usable from an agent<br/>natural-language triggers"]
+```
+
+Text and visuals are acquired independently and then reconciled: a number spoken in the audio and the same number shown on screen are compared, and a disagreement is marked in the note instead of being silently resolved.
+
 ## Install
 
 ```bash
