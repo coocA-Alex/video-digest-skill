@@ -6,7 +6,7 @@ transcripts and per-segment vision summaries, and summarizes the whole
 lecture into a single coherent note.
 
 Long-input handling (lessons from 2026-08-13 real runs):
-- thinking models (deepseek-v4-flash) exhaust max_tokens on reasoning and
+- thinking models (deepseek-flash) exhaust max_tokens on reasoning and
   return truncated/empty content without erroring -> this module always
   passes a large max_tokens (see MERGE_MAX_TOKENS)
 - inputs above the safe budget are split into chunks; each chunk is

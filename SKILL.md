@@ -108,7 +108,7 @@ metadata:
 
 ## Troubleshooting
 
-- **总结输出为空/过短**：思考型模型（deepseek-v4-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块；**字幕 >40k 字符自动语义分块**（`bili_summarize` 内置，块级缓存 tmp/long_summary_cache/ 支持断点续跑）
+- **总结输出为空/过短**：思考型模型（deepseek-flash）长输入时 max_tokens 不足会静默截断 → 设 max_tokens=50000 或分块；**字幕 >40k 字符自动语义分块**（`bili_summarize` 内置，块级缓存 tmp/long_summary_cache/ 支持断点续跑）
 - **长视频字幕只覆盖开头**：B站 AI 字幕对长视频可能只生成口播部分（如 96min 仅 9min）→ `needs_asr_fallback` 自动判定，走 ASR 兜底；兜底失败降级纯字幕并记录 no_subtitle 重试
 - **ASR 音频下载失败（dash 403/截断）**：dash 流需 UA+Referer+Cookie 完整头（`bili_media.fetch_audio` 已内置）；URL 带 deadline 中途失效 → 重试时刷新 URL；分段缓存陈旧时先清 `tmp/{bvid}_asr/`
 - **抽帧超时（ffmpeg 卡住等数据）**：B站 dash 流 URL 带 deadline，过期后 ffmpeg 挂起 → `video_frames.extract_frames` 已内置超时 180s + 刷新 URL 重试 2 次（需向调用链传入 sessdata）；仍失败则降级纯字幕，不阻塞整批
