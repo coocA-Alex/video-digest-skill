@@ -4,6 +4,8 @@
 
 [English](README.md) | 简体中文
 
+[![version](https://img.shields.io/github/v/tag/coocA-Alex/video-digest-skill?label=version&color=blue)](https://github.com/coocA-Alex/video-digest-skill/tags)
+
 ## 亮点
 
 - **多源输入**：B站 AI 字幕（精确到秒）、小红书推文/视频（自动类型判断）、公众号图文（正文 + 图片图注化）或任意本地视频文件

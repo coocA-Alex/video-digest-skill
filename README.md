@@ -4,6 +4,8 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
+[![version](https://img.shields.io/github/v/tag/coocA-Alex/video-digest-skill?label=version&color=blue)](https://github.com/coocA-Alex/video-digest-skill/tags)
+
 ## Highlights
 
 - **Multi-source input**: Bilibili AI subtitles (second-precision), Xiaohongshu notes/videos (auto type-detect), WeChat articles (text + image captioning), or any local video file
