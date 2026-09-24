@@ -37,6 +37,54 @@ REQUEST_TIMEOUT_SECONDS = 120
 # 思考型模型长提示先消耗推理 token, 输出额度需留足 (2026-08-13 实测: 8192 对长输入会空输出/截断, 50000 完整)
 MAX_OUTPUT_TOKENS = 50000
 
+# 输出卫生三条指纹: 模型包装泄漏进产物的三种形态
+_HYGIENE_CHITCHAT = re.compile(
+    r"^(好的[，,]?\s*我|我已仔细阅读|以下(是|为)我(为|根据)|希望(这|以上))"
+)
+_HYGIENE_FENCE = re.compile(r"^```")
+
+
+class NoteHygieneError(Exception):
+    """模型输出以对话开场白开头 —— 生成异常, 报错而不是猜着删 (不静默落盘)。"""
+
+
+def sanitize_output(text: str) -> str:
+    """剥掉纯包装 (首行围栏 / 孤立分隔线), 对话开场白则报错。幂等。
+
+    围栏与孤立 `---` 是包装, 剥离零信息损失、可否证; 开场白是模型说的一段话,
+    "从哪删到哪"要判断 —— 故让调用方看见, 由人决定。
+    """
+    out = text.strip()
+    stripped: list[str] = []
+
+    lines = out.split("\n")
+    if lines and _HYGIENE_FENCE.match(lines[0].strip()):
+        fences = [i for i, ln in enumerate(lines) if ln.strip().startswith("```")]
+        if len(fences) % 2 == 0:  # 偶数 = 首尾配对 ⇒ 整篇被包, 尾围栏一并摘
+            lines.pop(fences[-1])
+            stripped.append("尾围栏")
+        del lines[0]
+        out = "\n".join(lines).strip()
+        stripped.append("首围栏")
+
+    head, _, rest = out.partition("\n")
+    while head.strip() == "---":
+        out = rest.lstrip("\n")
+        stripped.append("孤立分隔线")
+        head, _, rest = out.partition("\n")
+
+    if stripped:
+        print(f"[hygiene] 剥离 {'/'.join(dict.fromkeys(stripped))} {len(text) - len(out)} 字符",
+              file=sys.stderr)
+
+    first = out.split("\n", 1)[0].strip()
+    if _HYGIENE_CHITCHAT.match(first):
+        raise NoteHygieneError(f"输出以对话开场白开头: {first[:40]!r}")
+    if not out:
+        raise NoteHygieneError("剥离包装后无正文")
+    return out
+
+
 TEMPLATES = {
     "stock": """你是一名股票市场视频内容分析助手。你的任务是严格区分"事实数据"与"UP主观点"。
 
@@ -359,6 +407,32 @@ UP主提到的风险点。
 字幕全文：
 {subtitle}
 {vision_section}""",
+    "prompt": """你是一名"可复用 prompt 条目"抽取助手。输入是视频笔记正文或评论区文本，
+其中可能夹带着**可直接复用的创作/生成类 prompt**（AI 绘图、AI 视频、代码生成、Agent 指令等）。
+
+请把其中的 prompt 抽成条目，**只输出 JSON 数组**，不要任何解释文字、不要 markdown 代码围栏：
+
+[
+  {
+    "purpose": "这份 prompt 是用来干什么的（一句话）",
+    "prompt": "prompt 原文，逐字符照抄，禁止润色/补全/翻译",
+    "model": "模型或工具；文本没写就写「未提及」",
+    "params": "比例/风格/权重等参数；没写就写「未提及」",
+    "category": "绘图 | 视频 | 代码 | Agent | 其他  五选一"
+  }
+]
+
+铁律（违反即整条作废）：
+1. **prompt 原文零改写** —— 每个字都可能是有效成分。原文里有省略号/错别字/中英混排，一律照抄。
+2. **模型与参数不许猜** —— 文本没写就写「未提及」。宁可留空，不可推测（猜错模型比留空危害大）。
+3. **只收真正的 prompt** —— 即"可以直接复制去用"的指令文本。对 prompt 的**评论、感想、转述、
+   "我用了某某提示词效果很好"这类没有原文的表述，一律不收**。
+4. **查不到出处的产物不收**；本任务只从给定文本里抽，不引入任何外部知识。
+5. 一条 prompt = 一个 JSON 对象；没有 prompt 就输出 `[]`。
+
+待抽取文本：
+{subtitle}
+{vision_section}""",
     "opinions": """你是一名视频内容分析助手。请从以下视频字幕中**提取全部观点、判断与预测**：
 
 ## 观点清单
@@ -678,7 +752,9 @@ def summarize_subtitle(
     if not subtitle_text.strip():
         raise ValueError("subtitle text is empty")
     if len(subtitle_text) > SAFE_INPUT_CHARS:
-        return _summarize_long(owner, title, subtitle_text, vision_summary, template, desc)
+        return sanitize_output(
+            _summarize_long(owner, title, subtitle_text, vision_summary, template, desc)
+        )
     messages = build_prompt(owner, title, subtitle_text, vision_summary, template, desc)
     last_exc: Exception | None = None
     for attempt in range(2):
@@ -690,7 +766,7 @@ def summarize_subtitle(
             time.sleep(5)
             continue
         if content and content.strip():
-            return content
+            return sanitize_output(content)
         time.sleep(5)
     if last_exc is not None:
         raise last_exc
@@ -715,7 +791,14 @@ def main() -> None:
         print(f"unknown style '{style}', available: {', '.join(TEMPLATES)}")
         sys.exit(1)
     subtitle_text = sub_path.read_text(encoding="utf-8")
-    summary = summarize_subtitle(load_api_key(), owner, sub_path.stem, subtitle_text, template=style, desc=desc)
+    try:
+        summary = summarize_subtitle(
+            load_api_key(), owner, sub_path.stem, subtitle_text, template=style, desc=desc
+        )
+    except NoteHygieneError as exc:
+        # 输出卫生不过关: 非零退出 (queue_runner 按 returncode 记失败), 不落盘
+        print(f"[hygiene] {exc}", file=sys.stderr)
+        sys.exit(1)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(summary, encoding="utf-8")
     print(f"summary ({style}) -> {out_path} ({len(summary)} chars)")

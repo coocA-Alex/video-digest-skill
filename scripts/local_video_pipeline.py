@@ -27,6 +27,7 @@ NOTES_DIR = PROJECT_ROOT / "notes"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import bili_summarize  # noqa: E402
+import note_header  # noqa: E402  (头部块唯一真相源)
 import asr  # noqa: E402  (provider 由 multimodal.json 路由)
 import video_vision  # noqa: E402
 
@@ -274,11 +275,14 @@ def main() -> None:
                 api_key, owner, video.stem, transcript, vision_summary, template
             )
             out_dir.mkdir(parents=True, exist_ok=True)
-            out_path.write_text(summary, encoding="utf-8")
+            # 讲座没有 BV 号: 标题用文件名, 日期与笔记文件名同源 (均为当天)
+            head = note_header.build(owner, "", video.stem,
+                                     int(datetime.now().timestamp()), duration)
+            out_path.write_text(head + summary, encoding="utf-8")
             print(f"      归档 -> {out_path}")
 
         print("done.")
-    except PipelineError as exc:
+    except (PipelineError, bili_summarize.NoteHygieneError) as exc:
         print(f"error: {exc}")
         sys.exit(1)
 

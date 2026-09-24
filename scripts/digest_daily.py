@@ -68,7 +68,9 @@ from bili_subtitle import (  # noqa: E402
 )
 import llm_codec  # noqa: E402  (异常类型: 编码层失败 = 供应商/协议层问题)
 import bili_summarize  # noqa: E402  (合集准入二次判断复用其请求层)
+import note_header  # noqa: E402  (头部块唯一真相源, 与队列/讲座管线共用)
 from bili_summarize import (  # noqa: E402
+    NoteHygieneError,
     SummaryEmptyError,
     detect_suspicious,
     detect_template,
@@ -444,12 +446,8 @@ def archive_note(owner: str, bvid: str, detail: dict[str, object], summary: str)
     owner_dir = NOTES_DIR / safe_filename(owner)
     owner_dir.mkdir(parents=True, exist_ok=True)
     out_path = owner_dir / f"{date_str}_{safe_filename(bvid)}.md"
-    minutes = int(detail["duration"]) // 60
-    header = (
-        f"# {detail['title']}\n\n"
-        f"- UP主: {owner} | 日期: {date_str} | 时长: {minutes} 分钟\n"
-        f"- 链接: https://www.bilibili.com/video/{bvid}\n\n---\n\n"
-    )
+    header = note_header.build(owner, bvid, str(detail["title"]),
+                               int(detail["pubdate"]), int(detail["duration"]))
     out_path.write_text(header + summary, encoding="utf-8")
     return out_path
 
@@ -495,19 +493,28 @@ def process_video(
     bvid: str,
     use_vision: bool = True,
     template: str | None = None,
+    desc_override: str | None = None,
+    prefetched: dict[str, object] | None = None,
 ) -> tuple[Path | None, dict[str, object]]:
     """Run the full subtitle→vision→summarize→archive chain for one video.
 
     template None → auto-detect by content type (LLM classify from
     title/desc/subtitle head) after the subtitle is fetched.
+    desc_override 覆盖 API 的 desc (给"剥离推广链接"等场景用)。
+    prefetched 注入 {"detail","pages","subtitle"} 跳过 B站 API —— 批量并行时
+    先串行预热, 避免并发打 412; None 时行为与从前完全一致。
     Returns (None, detail) when the note already exists on disk.
     """
-    detail = fetch_video_detail(bvid)
+    detail = prefetched["detail"] if prefetched else fetch_video_detail(bvid)
     if find_archive(bvid, detail):
         return None, detail
-    pages = enum_pages(bvid)
+    pages = prefetched["pages"] if prefetched else enum_pages(bvid)
     main_p = max(pages, key=lambda p: p["duration"])  # 主 P = 时长最长
-    subtitle_text = fetch_subtitle_text(sessdata, bvid, str(main_p["cid"]))
+    subtitle_text = (
+        str(prefetched["subtitle"]) if prefetched
+        else fetch_subtitle_text(sessdata, bvid, str(main_p["cid"]))
+    )
+    desc = desc_override if desc_override is not None else str(detail.get("desc") or "")
 
     # 多P: 其余 P 有字幕则拉取, 差异 (含内容/长度) 追加到笔记
     p_notes: list[str] = []
@@ -524,12 +531,13 @@ def process_video(
     # 模板分流: 显式配置优先, 否则按内容类型自动分类 (2026-08-29 质量反馈)
     if template is None:
         template = detect_template(
-            api_key, str(detail["title"]), str(detail.get("desc") or ""), subtitle_text[:800]
+            api_key, str(detail["title"]), desc, subtitle_text[:800]
         )
         print(f"    [template] 自动检测: {template}", file=sys.stderr)
 
     # 长视频字幕覆盖不足 → ASR 兜底 (dash 音频 + 分段转写, 复用 lecture 管线)
-    subtitle_source = "bili-ai"
+    # 预取注入时沿用调用方记录的来源 —— 无字幕轨走 ASR 的篇目, 标注不能在这一步丢掉
+    subtitle_source = str((prefetched or {}).get("subtitle_source") or "bili-ai")
     if needs_asr_fallback(subtitle_text, int(detail["duration"])):
         print("    [asr] 字幕覆盖不足, ASR 兜底", file=sys.stderr)
         try:
@@ -554,7 +562,7 @@ def process_video(
         subtitle_text,
         vision_summary,
         template,
-        str(detail.get("desc") or ""),
+        desc,
     )
     # 纯字幕总结若标记多处疑似听错 (音译/疑为), 自动开画面核验重总结, 不硬猜
     if not use_vision and detect_suspicious(summary):
@@ -568,7 +576,7 @@ def process_video(
                 subtitle_text,
                 vision_summary,
                 template,
-                str(detail.get("desc") or ""),
+                desc,
             )
     # 短视频内容密度提示 (笔记质量审计 P3): <2min 标薄内容
     if int(detail["duration"]) < 120:
@@ -681,7 +689,7 @@ def _handle_video(
         _mark_processed(processed, bvid, None, None, no_subtitle=True)
         report_lines.append(f"  {tag}跳过 {bvid} (无字幕, 已记 state): {exc}")
         return
-    except (SubtitleError, llm_codec.CodecError, requests.RequestException) as exc:
+    except (SubtitleError, llm_codec.CodecError, requests.RequestException, NoteHygieneError) as exc:
         report_lines.append(f"  {tag}失败 {bvid}: {exc}")
         return
     if out_path is None:

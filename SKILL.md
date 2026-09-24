@@ -119,6 +119,9 @@ metadata:
 - **报「所有视觉通道均失败」**：主通道与 `fallback` 都失败了，错误信息里会逐条列出每个通道的失败原因（HTTP 状态 + 响应片段，不含凭证）。常见原因：key 未配（`api_key_env` 变量没设且 `api_key_file` 不可读）、协议与端点不匹配（如把 Anthropic 端点写进 `openai_chat`）
 - **合集追更没生效 / 追进来一堆无关视频**：`season_id` 必须是**正整数** —— 填 `0` 或负数会直接抛错并走失败隔离（不会静默退化成"追整个 UP 主"）。合集 ID 取法：视频详情 API 的 `ugc_season.id`（`https://api.bilibili.com/x/web-interface/view?bvid=<BV>`）或合集页 URL 里的 `season_id`。报告行形如 `合集 42 集, 待处理 3 集(本轮上限 10), 新 3 条`；出现「待处理」说明本轮被 `--max` 限流，剩余下轮继续
 - **讲座分段合并选错了素材**：`local_video_merge.py` 默认只合并**最新一次录制会话**（`tmp/lecture/` 会累积历届），要指定用 `--match <录制名子串>`，要全量用 `--all`
+- **笔记正文里混进模型的"包装"**：产出端已内置**卫生预检**（`bili_summarize.sanitize_output`；主管线 / 本地视频 / 讲座三条写入路径共用）。三条指纹：① **首行代码围栏** —— 整篇被裹在 ``` 里（闭合与否都算，按围栏配对判定）；② **首行孤立 `---`**；③ **对话开场白**（"好的，我已仔细阅读…" / "以下是我…" / "希望以上…"）。
+  **两类处置不同**：①② 是纯包装，可否证、零信息损失 ⇒ **确定性剥离** + stderr 打印一行 `[hygiene] 剥离 …`；③「从哪删到哪」需要判断 ⇒ 抛 `NoteHygieneError`，**不落盘**，由人决定。
+  ⚠️ 看到 `[hygiene]` **不要当成正常** —— 它意味着这次生成异常，只是包装恰好可机械剥掉。正文**内部**成对出现的代码块不受影响（只在首行匹配）
 - **合集追更把旧闻/无关内容也灌进来**：合集的边界 ≠ 内容的边界。资讯类合集必须配 `season_backfill: "since:YYYY-MM-DD"`（不配会从最老集补起）；博主混装的话再加 `season_filter`（标题子串/正则）或 `season_llm_filter: true`（LLM 判是否属于合集主题，被拒的集会在报告里列出理由）。报告行带 `(补录=… / 标题筛 / LLM判)` 标记，没标记说明三层都没启用
 
 ## Available Scripts
@@ -127,7 +130,8 @@ metadata:
 |--------|---------|-----------|
 | `bili_subtitle.py` | B站 AI 字幕直取 | `<bvid> <cid>` |
 | `bili_media.py` | 多P 枚举 / 字幕覆盖检测 / dash 音频下载 | 库函数: `enum_pages` `check_coverage` `needs_asr_fallback` `fetch_audio` |
-| `bili_summarize.py` | 字幕 → 结构化总结（超长自动分块） | `<subtitle.txt> <owner> [out.md] [style]` |
+| `bili_summarize.py` | 字幕 → 结构化总结（超长自动分块；含**产出卫生预检**，见 Troubleshooting） | `<subtitle.txt> <owner> [out.md] [style]` |
+| `note_header.py` | 笔记头部块唯一真相源（`# 标题` + 元数据行 + 链接 + 分隔线），三条写入路径共用 | 库函数: `build` `ensure` `first_h1` |
 | `xhs_note.py` | 小红书推文/视频解析（自动类型判断） | `<explore_url> [--name noteX] [--extract]` |
 | `local_video_pipeline.py` | 本地视频 → 转写 → 笔记 | `<video> [--no-vision] [--owner] [--template] [--language]` |
 | `local_video_merge.py` | 分段讲座录屏 → 单篇总览 | `[--owner] [--title] [--match 子串] [--all] [--force]` |
