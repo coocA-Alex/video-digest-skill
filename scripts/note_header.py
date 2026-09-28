@@ -19,15 +19,23 @@ def build(
     title: str,
     pubdate_ts: int,
     duration_sec: int | None = None,
+    url: str = "",
 ) -> str:
-    """拼出头部块。duration_sec=None ⇒ 省略"时长"字段 (讲座/文章类没有时长)。"""
+    """拼出头部块。duration_sec=None ⇒ 省略"时长"字段 (讲座/文章类没有时长)。
+
+    bvid 为空但有 url 时用 url 作链接行 —— 非视频来源 (如每日文字早报) 走这条;
+    两者都为空则整行省略 (与旧行为一致)。
+    """
     date_str = datetime.fromtimestamp(int(pubdate_ts)).strftime("%Y-%m-%d")
     meta = f"- UP主: {owner} | 日期: {date_str}"
     if duration_sec is not None:
         meta += f" | 时长: {int(duration_sec) // 60} 分钟"
-    link = (
-        f"\n- 链接: https://www.bilibili.com/video/{bvid}" if bvid else ""
-    )
+    if bvid:
+        link = f"\n- 链接: https://www.bilibili.com/video/{bvid}"
+    elif url:
+        link = f"\n- 链接: {url}"
+    else:
+        link = ""
     return f"# {title}\n\n{meta}{link}\n\n---\n\n"
 
 

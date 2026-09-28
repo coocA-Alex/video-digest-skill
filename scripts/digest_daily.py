@@ -737,6 +737,15 @@ def run_digest(
             pass  # 开源副本不含 review_queue.py (私有编排器组件) —— 静默跳过, 不当失败
         except Exception as exc:
             print(f"[review_queue] 生成失败: {exc}", file=sys.stderr)
+        # 橘鸦 AI 早报 (文字源, 非视频): 09:10 发布, 21:00 这轮必然已出当天
+        try:
+            from juya_daily import archive as juya_archive, resolve_dates as juya_dates
+            for date_str in juya_dates(None):
+                print(juya_archive(date_str))
+        except ImportError:
+            pass  # 开源副本不含 juya_daily.py —— 同 above, 静默跳过
+        except Exception as exc:
+            print(f"[AI早报] 抓取失败: {exc}", file=sys.stderr)
     except Exception as exc:
         report_lines.append(f"run 崩溃: {exc}")
         raise
@@ -764,6 +773,11 @@ def _run_creators(
     """
     for creator in load_creators():
         name = str(creator["name"])
+        # enabled:false = 暂停追更但保留配置 (mid/state/历史笔记全留)。
+        # 显式记一行而不静默跳过 —— 停追是对外可见的决定, 报告里要看得见 (2026-09-28)
+        if creator.get("enabled", True) is False:
+            report_lines.append(f"[{name}] enabled=false, 暂停追更")
+            continue
         try:
             _run_one_creator(
                 sessdata, api_key, processed, backfill_state, state,
