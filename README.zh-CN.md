@@ -57,13 +57,22 @@ flowchart TD
 
 ## 安装
 
+复制**完整包**（SKILL.md、scripts、config、requirements），不要只复制说明文件。
+
 ```bash
 git clone https://github.com/coocA-Alex/video-digest-skill.git
-# 方式一: 用户级
+# Claude Code：用户级（或 <项目>/.claude/skills/video-digest）
 cp -r video-digest-skill ~/.claude/skills/video-digest
-# 方式二: 项目级
-cp -r video-digest-skill <your-project>/.claude/skills/video-digest
+# Codex：用户级（或 <项目>/.agents/skills/video-digest）
+mkdir -p ~/.agents/skills
+cp -r video-digest-skill ~/.agents/skills/video-digest
 ```
+
+已有 Codex 应用管理的安装时，更新已被发现的那一份，不另建同名副本。本机应用 profile 可能使用 `$CODEX_HOME/skills/video-digest`；该路径不是所有安装的默认入口。更新说明在下一轮可用；技能列表仍显示旧信息时重启应用。
+
+**安装目录与运行目录分开**：保留可写的项目副本，在该副本建立虚拟环境、安装 requirements，使用它自己的 Python 和 scripts。脚本按自身位置定位 config、tmp、notes；只改变 cwd 不会重定向这些路径。不要在全局安装目录处理数据或保存凭证，详见 SKILL.md 的运行约定。
+
+Codex 项目指令放在使用项目的 `AGENTS.md`。复制本 skill 不会把 Claude settings、hooks 或定时任务迁移成 Codex 自动任务。
 
 ## 使用
 
@@ -78,7 +87,7 @@ cp -r video-digest-skill <your-project>/.claude/skills/video-digest
    ```
    登录 cookie 一律存**仓库外**（绝不提交）：B站 SESSDATA → `~/.bili_sessdata`；小红书 web_session → `~/.xhs_web_session`。脚本只读这些路径，从不打印。
 2. 多模态模型可替换：编辑 `config/multimodal.json` 的 `asr`/`vision` 段（provider/protocol/model/base_url/api_key_env/auth/params/limits/fallback）。协议属于 Anthropic messages / OpenAI chat / 转写三种之一 → **只改配置**；超出这三种才需要加编码器。
-3. **Agent 兼容**：已验证集成：Claude Code、Codex Desktop。scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量（`api_key_env`）→ 项目内 key 文件（`api_key_file`，如 `config/ds_key.local.json`）。**Claude Code 全局配置兜底默认关闭**，需在 `multimodal.json` 的 `summarize` 段显式设 `allow_anthropic_token_fallback: true`。
+3. **Agent 兼容**：已验证集成：Claude Code、Codex Desktop。scripts 为纯 Python CLI 不依赖 agent；key 解析顺序 = 环境变量（`api_key_env`）→ 项目内 key 文件（`api_key_file`，如 `config/ds_key.local.json`）。**Claude Code token 兜底已移除**：当前脚本不读取 Claude 全局凭证，也不支持 `allow_anthropic_token_fallback`。
 
 ## 开源说明
 

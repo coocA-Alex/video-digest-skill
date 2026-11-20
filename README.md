@@ -57,13 +57,22 @@ Text and visuals are acquired independently and then reconciled: a number spoken
 
 ## Install
 
+Copy the **complete package** (SKILL.md, scripts, config, requirements), not SKILL.md alone.
+
 ```bash
 git clone https://github.com/coocA-Alex/video-digest-skill.git
-# Option 1: user-level
+# Claude Code: user-level (or <project>/.claude/skills/video-digest)
 cp -r video-digest-skill ~/.claude/skills/video-digest
-# Option 2: project-level
-cp -r video-digest-skill <your-project>/.claude/skills/video-digest
+# Codex: user-level (or <project>/.agents/skills/video-digest)
+mkdir -p ~/.agents/skills
+cp -r video-digest-skill ~/.agents/skills/video-digest
 ```
+
+For an existing Codex app-managed installation, update that discovered installation rather than adding a second skill with the same name. The app profile may use `$CODEX_HOME/skills/video-digest`; do not assume that path is the default for every installation. Updated instructions are available on the next turn; restart if the skill list still shows stale metadata.
+
+**Runtime is separate from installation.** Keep a writable project copy, create its virtual environment, install `requirements.txt`, and run that project's scripts with its Python. Scripts locate config, tmp and notes relative to their own package root; changing cwd alone does not redirect those paths. Do not process data or store credentials inside a global skill installation. See the runtime contract in SKILL.md.
+
+Codex project rules belong in the consuming project's `AGENTS.md`. Claude settings, hooks and scheduled tasks are not installed as Codex automations by copying this skill.
 
 ## Usage
 
@@ -78,7 +87,7 @@ Natural-language triggers: **"parse this video [URL/BV]" / "parse this local vid
    ```
    Login cookies live **outside the repo** (never committed): Bilibili SESSDATA → `~/.bili_sessdata`; Xiaohongshu web_session → `~/.xhs_web_session`. Scripts read these paths only and never print them.
 2. Swappable models: edit the `asr`/`vision` sections of `config/multimodal.json` (provider/protocol/model/base_url/api_key_env/auth/params/limits/fallback). If the protocol is one of Anthropic messages / OpenAI chat / transcription → **config-only change**; a new protocol needs a new codec (see `scripts/llm_codec.py`).
-3. **Agent compatibility**: Tested integrations: Claude Code and Codex Desktop. Scripts are plain Python CLI with no agent dependency; key resolution order = environment variable (`api_key_env`) → project-local key file (`api_key_file`, e.g. `config/ds_key.local.json`). **The Claude Code global-config fallback is off by default** — enable it explicitly with `allow_anthropic_token_fallback: true` in the `summarize` section of `multimodal.json`.
+3. **Agent compatibility**: Tested integrations: Claude Code and Codex Desktop. Scripts are plain Python CLI with no agent dependency; key resolution order = environment variable (`api_key_env`) → project-local key file (`api_key_file`, e.g. `config/ds_key.local.json`). **The Claude Code token fallback has been removed**. Current scripts do not read Claude global credentials and do not support `allow_anthropic_token_fallback`.
 
 ## Open-source notice
 

@@ -1,12 +1,12 @@
 ---
 name: video-digest
-version: "0.4.0"
-description: 视频与图文内容解析与笔记。兼容 B站视频（单视频/UP主追更/合集系列追踪）、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、纯视觉内容解读、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、追更某个 UP 主或某个合集系列、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文、追更、跟新视频、追踪课程系列、合集追更。
-author: coocA-Alex
-tags: [video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr, tracking, season]
+description: >-
+  视频与图文内容解析与笔记。兼容 B站视频（单视频/UP主追更/合集系列追踪）、小红书推文/视频、微信公众号图文、本地视频文件：字幕直取或语音转写、画面核验、图片文字提取与图注化、纯视觉内容解读、结构化总结、笔记归档。Use when: 需要解析视频/图文内容、提取字幕或图片文字、核验画面、追更某个 UP 主或某个合集系列、做结构化笔记。触发词：解析这个视频、总结这个视频、解析本地视频、视频摘要、字幕提取、画面核验、提炼视频要点、看视频讲了什么、做视频笔记、解析小红书、解析公众号推文、看小红书推文、追更、跟新视频、追踪课程系列、合集追更。
 license: MIT
 metadata:
-  version: 0.4.0
+  version: "0.4.1"
+  author: coocA-Alex
+  tags: "video, digest, bilibili, xiaohongshu, notes, subtitle, vision, asr, tracking, season"
 ---
 
 # 视频解析与情报追踪
@@ -14,6 +14,21 @@ metadata:
 ## Purpose
 
 把视频/图文内容转成结构化、可核验的笔记：字幕直取或语音转写、画面核验、图片文字提取，事实与观点分离，供个人学习与研究复用。
+
+## Agent 运行约定（Claude Code / Codex 通用）
+
+1. **先选运行副本**：用户指定的项目优先，其次是当前工作区。运行根必须同时有 `scripts/`、`config/multimodal.json`；本项目使用仓库根目录，而不是 `skills/video-digest/`（后者仅有说明）。
+2. **安装目录不作为数据工作区**：技能安装目录的脚本会按自身位置读取配置并写 `tmp/`、`notes/`。只改变 cwd 不会改变这些路径。没有项目时，在用户允许的可写工作区建立完整运行副本，再处理内容；不要写全局安装目录，也不要自动复制旧副本中的凭证。
+3. **明确解释器**：Windows 使用所选运行副本的 `.venv/Scripts/python.exe`，Linux/macOS 使用 `.venv/bin/python`；不使用其他项目的 Python。虚拟环境缺失时先说明并按授权安装依赖。
+4. **配置与产物同根**：从运行副本读取 `.env`、`config/`；中间产物在该副本的 `tmp/`，正式笔记在 `notes/`。cookie 仍从用户主目录读取，不打印其内容。
+5. **Codex 调用本地终端**：使用真实 Python CLI，不调用下方仅用于 Claude 示例的 `run_script`。网络/目录权限不足时请求授权，不绕过沙箱。
+6. **模型与验证边界**：使用 Codex 不等于更换 provider。保留用户当前模型配置；真实付费调用及模型切换需另获授权。离线或 mock 测试不能标记为真实端到端验证。
+
+PowerShell 示例（在所选运行副本根目录）：
+
+```powershell
+& .\.venv\Scripts\python.exe -B .\scripts\local_video_pipeline.py "D:\videos\lecture.mp4" --owner 讲座
+```
 
 ## Prerequisites
 
@@ -91,7 +106,7 @@ metadata:
 - 示例配置见 `config/multimodal.json`（不含 key）
 - **Agent 兼容**：**已验证集成：Claude Code、Codex Desktop**（2026-08-29：skill 发现、包结构、脚本语法在 Codex Desktop 验证通过；端到端 provider 执行待验证）。核心能力为 Python CLI，可供能够读取 Markdown 技能说明并执行本地命令的其他 agent（Cursor/OpenClaw 等）适配；其他 agent 集成尚未实际验证。
 - **key 解析顺序** = 环境变量（`api_key_env`）→ 项目本地配置（`config/ds_key.local.json`）。
-  **Claude Code legacy 兜底默认关闭**：`ANTHROPIC_AUTH_TOKEN` 是 Anthropic 侧凭证，被当作 Bearer 发到上面配置的 `base_url`（可能是第三方端点）等于把 key 送错地方 → 只有显式信任该端点时才启用：在 `config/multimodal.json` 的 `summarize` 段设 `"allow_anthropic_token_fallback": true`
+  **当前实现已移除 Claude Code token 兜底**：不读取 Claude 全局设置，不支持 `allow_anthropic_token_fallback`；不要将 Claude 登录 token 发给其他供应商端点。
 
 ## 合规
 
